@@ -272,10 +272,10 @@ const WorkerDashboard = () => {
       margin: 0,
       position: 'relative'
     }}>
-      {isMobileMenuOpen && (
-        <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
-      )}
       <nav className="dashboard-nav">
+        {isMobileMenuOpen && (
+          <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+        )}
         <div>
           <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '700', color: '#fff', letterSpacing: '3px', textShadow: '0 0 10px rgba(225, 65, 236, 0.4)' }}>
             {t('app_name')}

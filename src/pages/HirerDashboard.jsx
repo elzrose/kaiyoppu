@@ -289,10 +289,10 @@ const HirerDashboard = () => {
       margin: 0,
       position: 'relative'
     }}>
-      {isMobileMenuOpen && (
-        <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
-      )}
       <nav className="dashboard-nav fixed">
+        {isMobileMenuOpen && (
+          <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+        )}
         <div>
           <h2 style={{
             margin: 0,

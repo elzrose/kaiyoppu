@@ -168,11 +168,11 @@ const AdminDashboard = () => {
       flexDirection: 'column',
       boxSizing: 'border-box'
     }}>
-      {isMobileMenuOpen && (
-        <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
-      )}
       {/* Top Navbar */}
       <nav className="dashboard-nav fixed" style={{ position: 'sticky' }}>
+        {isMobileMenuOpen && (
+          <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <h2 style={{
             margin: 0,
