@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
-const ADMIN_EMAILS = ['admin@kaiyoppu.in'];
+export const ADMIN_EMAILS = ['admin@kaiyoppu.in', 'admin123@kaiyoppu.com'];
 
 const AdminDashboard = () => {
   const { t } = useTranslation();

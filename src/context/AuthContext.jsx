@@ -71,8 +71,6 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      
       if (user) {
         // Fetch role if user exists upon page load
         try {
@@ -80,13 +78,18 @@ export const AuthProvider = ({ children }) => {
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
             setUserRole(userDocSnap.data().role || null);
+          } else {
+            setUserRole(null);
           }
         } catch (error) {
           console.error("Failed to fetch user role from DB:", error);
           alert(`Database Error: ${error.message}\nMake sure your Firestore Database is created and permissions are allowed.`);
+          setUserRole(null);
         }
+        setCurrentUser(user);
       } else {
         setUserRole(null);
+        setCurrentUser(null);
       }
       
       setLoading(false);
