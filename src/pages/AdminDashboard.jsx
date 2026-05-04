@@ -22,10 +22,9 @@ const AdminDashboard = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    // Access Control
-    if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) {
-      navigate('/');
-    }
+    // We do not auto-redirect on unauthorized here anymore.
+    // Instead we rely on the component returning the Unauthorized UI below,
+    // which has a "Sign Out" button so the user doesn't get stuck.
   }, [currentUser, navigate]);
 
   const fetchData = async () => {
