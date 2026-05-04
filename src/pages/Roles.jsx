@@ -66,12 +66,14 @@ const Roles = () => {
       alignItems: 'center',
       fontFamily: '"Advent Pro", "Inter", sans-serif',
       margin: 0,
-      position: 'relative',
-      overflow: 'hidden'
+      position: 'relative'
     }}>
-      <div style={{ position: 'absolute', top: '20px', right: '30px', zIndex: 10 }}>
-        <LanguageSwitcher />
-      </div>
+      <nav className="dashboard-nav" style={{ position: 'absolute', padding: '15px' }}>
+        <div></div>
+        <div className="nav-actions">
+          <LanguageSwitcher />
+        </div>
+      </nav>
       <h1 style={{ 
         color: '#e141ec', 
         fontSize: '3rem',

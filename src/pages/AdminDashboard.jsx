@@ -17,6 +17,9 @@ const AdminDashboard = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalWorkers: 0, totalHirers: 0, verifiedWorkers: 0 });
+  
+  // Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     // Access Control
@@ -165,19 +168,11 @@ const AdminDashboard = () => {
       flexDirection: 'column',
       boxSizing: 'border-box'
     }}>
+      {isMobileMenuOpen && (
+        <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
       {/* Top Navbar */}
-      <nav style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '20px 40px',
-        borderBottom: '1px solid rgba(225, 65, 236, 0.2)',
-        background: 'rgba(15, 12, 41, 0.8)',
-        backdropFilter: 'blur(10px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
+      <nav className="dashboard-nav fixed" style={{ position: 'sticky' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <h2 style={{
             margin: 0,
@@ -189,8 +184,13 @@ const AdminDashboard = () => {
           }}>
             {t('app_name')} <span style={{ color: '#e141ec' }}>ADMIN</span>
           </h2>
-          <LanguageSwitcher />
         </div>
+        <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          ☰
+        </button>
+        <div className={`nav-actions ${isMobileMenuOpen ? 'open' : ''}`}>
+          <button className="close-menu-btn hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}>✕</button>
+          <LanguageSwitcher />
         <button
           onClick={handleLogout}
           style={{
@@ -214,6 +214,7 @@ const AdminDashboard = () => {
         >
           {t('sign_out')}
         </button>
+        </div>
       </nav>
 
       {/* Main Content Area */}
@@ -244,7 +245,7 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
+            <div className="admin-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
               {/* User Management Table */}
               <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
@@ -254,6 +255,7 @@ const AdminDashboard = () => {
                 overflowX: 'auto'
               }}>
                 <h3 style={{ margin: '0 0 20px 0', color: '#e141ec', fontSize: '1.4rem' }}>{t('user_management')}</h3>
+                <div className="responsive-table-wrapper">
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
@@ -316,6 +318,7 @@ const AdminDashboard = () => {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Activity Logs Sidebar */}

@@ -23,6 +23,9 @@ const WorkerDashboard = () => {
   // Status Toggle State
   const [workerStatus, setWorkerStatus] = useState('Looking for job');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  
+  // Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Hirers Directory State
   const [showHirersModal, setShowHirersModal] = useState(false);
@@ -267,85 +270,94 @@ const WorkerDashboard = () => {
       padding: '2rem',
       boxSizing: 'border-box',
       margin: 0,
-      position: 'relative',
-      overflow: 'hidden'
+      position: 'relative'
     }}>
-      <div style={{ position: 'absolute', top: '25px', left: '35px', zIndex: 10 }}>
-        <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '700', color: '#fff', letterSpacing: '3px', textShadow: '0 0 10px rgba(225, 65, 236, 0.4)' }}>
-          {t('app_name')}
-        </h2>
-      </div>
-
-      <div style={{ position: 'absolute', top: '25px', right: '35px', display: 'flex', gap: '15px', zIndex: 10, alignItems: 'center' }}>
-        
-        <LanguageSwitcher />
-
-        {/* Notifications Button */}
-        <button
-          onClick={fetchNotifications}
-          style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(225, 65, 236, 0.5)',
-            color: '#fff',
-            padding: '10px 20px',
-            borderRadius: '25px',
-            cursor: 'pointer',
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '0.9rem',
-            fontWeight: 'bold',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          🔔 {t('notifications')}
+      {isMobileMenuOpen && (
+        <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
+      <nav className="dashboard-nav">
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '700', color: '#fff', letterSpacing: '3px', textShadow: '0 0 10px rgba(225, 65, 236, 0.4)' }}>
+            {t('app_name')}
+          </h2>
+        </div>
+        <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          ☰
         </button>
 
-        <button
-          onClick={fetchHirers}
-          style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(225, 65, 236, 0.5)',
-            color: '#fff',
-            padding: '10px 20px',
-            borderRadius: '25px',
-            cursor: 'pointer',
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '0.9rem',
-            fontWeight: 'bold',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          {t('look_for_hirers')}
-        </button>
+        <div className={`nav-actions ${isMobileMenuOpen ? 'open' : ''}`}>
+          <button className="close-menu-btn hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}>✕</button>
+          <LanguageSwitcher />
 
-        <button
-          onClick={() => { setShowProfileModal(true); setActiveTab('profile'); }}
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(225, 65, 236, 0.5)',
-            color: '#fff',
-            padding: '10px 20px',
-            borderRadius: '25px',
-            cursor: 'pointer',
-            fontFamily: '"Inter", sans-serif',
-            fontSize: '0.9rem',
-            fontWeight: 'bold',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          {t('account')}
-        </button>
-      </div>
+          <button
+            onClick={fetchNotifications}
+            className="nav-btn"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(225, 65, 236, 0.5)',
+              color: '#fff',
+              padding: '10px 20px',
+              borderRadius: '25px',
+              cursor: 'pointer',
+              fontFamily: '"Inter", sans-serif',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            🔔 <span className="hide-on-mobile">{t('notifications')}</span>
+          </button>
 
-      <h1 style={{
+          <button
+            onClick={fetchHirers}
+            className="nav-btn"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(225, 65, 236, 0.5)',
+              color: '#fff',
+              padding: '10px 20px',
+              borderRadius: '25px',
+              cursor: 'pointer',
+              fontFamily: '"Inter", sans-serif',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            🔍 <span className="hide-on-mobile">{t('look_for_hirers')}</span>
+          </button>
+
+          <button
+            onClick={() => { setShowProfileModal(true); setActiveTab('profile'); }}
+            className="nav-btn"
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(225, 65, 236, 0.5)',
+              color: '#fff',
+              padding: '10px 20px',
+              borderRadius: '25px',
+              cursor: 'pointer',
+              fontFamily: '"Inter", sans-serif',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            👤 <span className="hide-on-mobile">{t('account')}</span>
+          </button>
+        </div>
+      </nav>
+
+      <h1 className="dashboard-title" style={{
         fontSize: '3rem', fontWeight: 'bold', marginBottom: '2rem', color: '#e141ec',
         textShadow: '0 0 15px rgba(225, 65, 236, 0.5)', letterSpacing: '2px', textAlign: 'center'
       }}>
@@ -416,11 +428,7 @@ const WorkerDashboard = () => {
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
           backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
         }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
-            border: '1px solid rgba(225, 65, 236, 0.3)', borderRadius: '16px', padding: '30px',
-            width: '90%', maxWidth: '600px', boxShadow: '0 15px 35px rgba(0,0,0,0.5)', position: 'relative'
-          }}>
+          <div className="responsive-modal" style={{ maxWidth: '600px' }}>
             <button onClick={() => setShowNotificationsModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}>✕</button>
             <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center', fontFamily: '"Inter", sans-serif' }}>{t('notifications')}</h2>
             
@@ -486,11 +494,7 @@ const WorkerDashboard = () => {
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
           backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
         }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
-            border: '1px solid rgba(225, 65, 236, 0.3)', borderRadius: '16px', padding: '30px',
-            width: '90%', maxWidth: activeTab === 'history' ? '700px' : '400px', position: 'relative'
-          }}>
+          <div className="responsive-modal" style={{ maxWidth: activeTab === 'history' ? '700px' : '400px' }}>
             <button onClick={() => setShowProfileModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}>✕</button>
             <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
               <button onClick={() => setActiveTab('profile')} style={tabStyle('profile', activeTab)}>{t('profile')}</button>
@@ -530,7 +534,7 @@ const WorkerDashboard = () => {
               </div>
             )}
             {activeTab === 'history' && (
-              <div style={{ overflowX: 'auto', maxHeight: '400px', overflowY: 'auto' }}>
+              <div className="responsive-table-wrapper">
                 {isFetchingHistory ? <div style={{ textAlign: 'center', padding: '20px' }}>Loading...</div> : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', textAlign: 'left' }}>
                     <thead><tr style={{ borderBottom: '1px solid rgba(225, 65, 236, 0.4)', color: '#e141ec' }}><th>{t('sno')}</th><th>{t('where')}</th><th>{t('what')}</th><th>{t('duration')}</th><th>{t('amount')}</th><th>{t('remark')}</th></tr></thead>
@@ -555,11 +559,7 @@ const WorkerDashboard = () => {
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
           backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
         }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
-            border: '1px solid rgba(225, 65, 236, 0.3)', borderRadius: '16px', padding: '30px',
-            width: '90%', maxWidth: '600px', position: 'relative'
-          }}>
+          <div className="responsive-modal" style={{ maxWidth: '600px' }}>
             <button onClick={() => setShowHirersModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}>✕</button>
             <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center', fontFamily: '"Inter", sans-serif' }}>{t('available_hirers')}</h2>
             
