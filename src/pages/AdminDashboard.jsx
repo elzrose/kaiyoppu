@@ -154,7 +154,29 @@ const AdminDashboard = () => {
   };
 
   if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) {
-    return <div style={{ background: '#0b0b0b', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#ff4c4c' }}>Unauthorized</div>;
+    return (
+      <div style={{ background: '#0b0b0b', height: '100vh', display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'center', alignItems: 'center', color: '#ff4c4c', fontFamily: '"Inter", sans-serif' }}>
+        <h2>Unauthorized Access</h2>
+        <p style={{ color: '#fff' }}>You are logged in as <strong>{currentUser?.email || 'Unknown'}</strong>, which is not an admin.</p>
+        <button 
+          onClick={async () => {
+            await logout();
+            navigate('/login');
+          }}
+          style={{
+            background: 'transparent',
+            border: '1px solid #ff4c4c',
+            color: '#ff4c4c',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          Sign Out & Switch Account
+        </button>
+      </div>
+    );
   }
 
   return (
