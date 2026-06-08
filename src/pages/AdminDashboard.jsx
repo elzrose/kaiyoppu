@@ -6,24 +6,27 @@ import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
-const ADMIN_EMAILS = ['admin@kaiyoppu.in'];
+const ADMIN_EMAILS = ['admin@kaiyoppu.com'];
 
 const AdminDashboard = () => {
   const { t } = useTranslation();
-  const { currentUser, logout } = useAuth();
+  const { currentUser, userRole, logout } = useAuth();
   const navigate = useNavigate();
 
   const [usersList, setUsersList] = useState([]);
+  const [reportsList, setReportsList] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalWorkers: 0, totalHirers: 0, verifiedWorkers: 0 });
 
+  const isAdmin = currentUser && (ADMIN_EMAILS.includes(currentUser.email) || userRole === 'admin');
+
   useEffect(() => {
     // Access Control
-    if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) {
+    if (!currentUser || !isAdmin) {
       navigate('/');
     }
-  }, [currentUser, navigate]);
+  }, [currentUser, isAdmin, navigate]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -52,10 +55,22 @@ const AdminDashboard = () => {
         verifiedWorkers: vwCount
       });
 
+      // Fetch mismatch reports
+      try {
+        const reportsSnap = await getDocs(collection(db, 'mismatchReports'));
+        const reportsData = reportsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        reportsData.sort((a, b) => {
+          const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+          const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+          return timeB - timeA;
+        });
+        setReportsList(reportsData);
+      } catch (reportsErr) {
+        console.error("Error fetching mismatch reports:", reportsErr);
+      }
+
       // Fetch logs
-      const q = query(collection(db, 'adminLogs'), orderBy('timestamp', 'desc'), limit(10));
-      const logsSnap = await getDocs(q);
-      setLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      await fetchLogs();
     } catch (error) {
       console.error("Error fetching data", error);
     } finally {
@@ -64,10 +79,10 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    if (currentUser && ADMIN_EMAILS.includes(currentUser.email)) {
+    if (currentUser && isAdmin) {
       fetchData();
     }
-  }, [currentUser]);
+  }, [currentUser, isAdmin]);
 
   const handleLogout = async () => {
     try {
@@ -100,7 +115,7 @@ const AdminDashboard = () => {
         setStats(prev => ({ ...prev, verifiedWorkers: prev.verifiedWorkers + 1 }));
       }
       await logAction('VERIFIED', user);
-      fetchLogs();
+      await fetchLogs();
     } catch (error) {
       console.error(error);
       alert("Failed to verify user.");
@@ -119,7 +134,7 @@ const AdminDashboard = () => {
         setStats(prev => ({ ...prev, verifiedWorkers: prev.verifiedWorkers - 1 }));
       }
       await logAction('REJECTED', user);
-      fetchLogs();
+      await fetchLogs();
     } catch (error) {
       console.error(error);
       alert("Failed to reject user.");
@@ -133,24 +148,112 @@ const AdminDashboard = () => {
         await updateDoc(doc(db, 'users', user.id), { adminRemark: remark });
         alert("Remark added successfully.");
         await logAction('REMARK ADDED', user);
-        fetchLogs();
+        await fetchLogs();
       } catch(e) {
         console.error(e);
       }
     }
   };
 
+  const handleResetVerification = async (report) => {
+    try {
+      const confirmAction = window.confirm(`Are you sure you want to reset verification for ${report.workerName}? This will lock their QR code and clear their profile photo.`);
+      if (!confirmAction) return;
+
+      const workerRef = doc(db, 'users', report.workerId);
+      await updateDoc(workerRef, {
+        isVerified: false,
+        profilePic: '',
+        aadhaarNumber: '',
+        lastVerifiedAt: ''
+      });
+
+      const reportRef = doc(db, 'mismatchReports', report.id);
+      await updateDoc(reportRef, {
+        status: 'resolved',
+        actionTaken: 'reset_verification'
+      });
+
+      await logAction('RESET_VERIFICATION', { id: report.workerId, name: report.workerName });
+      alert("Worker verification reset successfully.");
+      await fetchData();
+    } catch (err) {
+      console.error("Error resetting verification:", err);
+      alert("Failed to reset verification.");
+    }
+  };
+
+  const handleSuspendWorker = async (report) => {
+    try {
+      const confirmAction = window.confirm(`Are you sure you want to suspend ${report.workerName}? They will be blocked from accessing the application.`);
+      if (!confirmAction) return;
+
+      const workerRef = doc(db, 'users', report.workerId);
+      await updateDoc(workerRef, {
+        isSuspended: true,
+        status: 'suspended'
+      });
+
+      const reportRef = doc(db, 'mismatchReports', report.id);
+      await updateDoc(reportRef, {
+        status: 'resolved',
+        actionTaken: 'suspended'
+      });
+
+      await logAction('SUSPENDED_WORKER', { id: report.workerId, name: report.workerName });
+      alert("Worker suspended successfully.");
+      await fetchData();
+    } catch (err) {
+      console.error("Error suspending worker:", err);
+      alert("Failed to suspend worker.");
+    }
+  };
+
+  const handleDismissReport = async (report) => {
+    try {
+      const confirmAction = window.confirm("Are you sure you want to dismiss this report? No changes will be made to the worker.");
+      if (!confirmAction) return;
+
+      const reportRef = doc(db, 'mismatchReports', report.id);
+      await updateDoc(reportRef, {
+        status: 'resolved',
+        actionTaken: 'dismissed'
+      });
+
+      await logAction('DISMISSED_REPORT', { id: report.workerId, name: report.workerName });
+      alert("Report dismissed.");
+      await fetchData();
+    } catch (err) {
+      console.error("Error dismissing report:", err);
+      alert("Failed to dismiss report.");
+    }
+  };
+
   const fetchLogs = async () => {
     try {
-      const q = query(collection(db, 'adminLogs'), orderBy('timestamp', 'desc'), limit(10));
-      const logsSnap = await getDocs(q);
-      setLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      let logsData = [];
+      try {
+        const q = query(collection(db, 'adminLogs'), orderBy('timestamp', 'desc'), limit(15));
+        const logsSnap = await getDocs(q);
+        logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (logQueryErr) {
+        console.warn("Index not ready for logs ordering, falling back to client-side sort", logQueryErr);
+        const logsSnap = await getDocs(collection(db, 'adminLogs'));
+        logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        logsData.sort((a, b) => {
+          const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+          const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+          return tB - tA;
+        });
+        logsData = logsData.slice(0, 15);
+      }
+      setLogs(logsData);
     } catch (error) {
       console.error(error);
     }
   };
 
-  if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) {
+  if (!currentUser || !isAdmin) {
     return <div style={{ background: '#0b0b0b', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#ff4c4c' }}>Unauthorized</div>;
   }
 
@@ -242,6 +345,114 @@ const AdminDashboard = () => {
                 <div style={statLabelStyle}>{t('verified_workers')}</div>
                 <div style={statValueStyle}>{stats.verifiedWorkers}</div>
               </div>
+            </div>
+
+            {/* Mismatch Reports Panel */}
+            <div style={{
+              background: 'rgba(255, 76, 76, 0.02)',
+              border: '1px solid rgba(255, 76, 76, 0.25)',
+              borderRadius: '16px',
+              padding: '25px',
+              marginBottom: '40px',
+              boxShadow: '0 4px 30px rgba(255, 76, 76, 0.05)'
+            }}>
+              <h3 style={{ margin: '0 0 20px 0', color: '#ff4c4c', fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.6rem' }}>🚨</span> Selfie Mismatch Reports
+              </h3>
+
+              {reportsList.length === 0 ? (
+                <div style={{ color: '#aaa', fontStyle: 'italic', padding: '10px' }}>No profile mismatch reports recorded.</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                  {reportsList.map(report => (
+                    <div key={report.id} style={{
+                      background: 'rgba(0, 0, 0, 0.3)',
+                      border: `1px solid ${report.status === 'pending' ? 'rgba(255, 76, 76, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+                      borderRadius: '12px',
+                      padding: '20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px'
+                    }}>
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                        {/* Worker Verified Selfie Display */}
+                        <div style={{
+                          width: '70px', height: '70px', borderRadius: '50%', overflow: 'hidden',
+                          border: '2px solid #ff4c4c', background: 'rgba(255,255,255,0.05)'
+                        }}>
+                          {report.workerPhoto ? (
+                            <img src={report.workerPhoto} alt="Worker Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem' }}>👤</div>
+                          )}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h4 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{report.workerName}</h4>
+                          <span style={{ fontSize: '0.8rem', color: '#aaa' }}>{report.workerEmail}</span>
+                          <div style={{ marginTop: '5px' }}>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold',
+                              background: report.status === 'pending' ? 'rgba(255, 76, 76, 0.2)' : 'rgba(0, 230, 118, 0.2)',
+                              color: report.status === 'pending' ? '#ff4c4c' : '#00e676'
+                            }}>
+                              {report.status === 'pending' ? 'Pending Action' : 'Resolved'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span style={{ color: '#888' }}>Reported by:</span>
+                          <span style={{ color: '#fff', fontWeight: '500' }}>{report.reportedByName}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span style={{ color: '#888' }}>Hirer email:</span>
+                          <span style={{ color: '#aaa' }}>{report.reportedByEmail}</span>
+                        </div>
+                        <div style={{ background: 'rgba(255, 76, 76, 0.05)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255, 76, 76, 0.15)', color: '#ffb3b3', fontStyle: 'italic' }}>
+                          "{report.comment}"
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '8px', textAlign: 'right' }}>
+                          {report.timestamp?.toDate ? report.timestamp.toDate().toLocaleString() : new Date(report.timestamp || 0).toLocaleString()}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px', marginTop: 'auto' }}>
+                        {report.status === 'pending' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button 
+                                onClick={() => handleResetVerification(report)}
+                                style={{ flex: 1, padding: '8px', background: '#ffa000', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                              >
+                                Reset Verify
+                              </button>
+                              <button 
+                                onClick={() => handleSuspendWorker(report)}
+                                style={{ flex: 1, padding: '8px', background: '#ff4c4c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                              >
+                                Suspend
+                              </button>
+                            </div>
+                            <button 
+                              onClick={() => handleDismissReport(report)}
+                              style={{ width: '100%', padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#ccc', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                            >
+                              Dismiss Report
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', fontSize: '0.85rem', color: '#00e676', fontWeight: 'bold', padding: '6px 0', background: 'rgba(0, 230, 118, 0.05)', borderRadius: '6px' }}>
+                            ✓ Resolved ({report.actionTaken?.replace('_', ' ').toUpperCase()})
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>

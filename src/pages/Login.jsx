@@ -18,7 +18,9 @@ const Login = () => {
   // On mount or state change, intercept if they are already logged in
   useEffect(() => {
     if (currentUser) {
-      if (userRole && ['worker', 'hirer', 'admin'].includes(userRole)) {
+      if (currentUser.email === 'admin@kaiyoppu.com') {
+        navigate('/admin');
+      } else if (userRole && ['worker', 'hirer', 'admin'].includes(userRole)) {
         navigate(`/${userRole}`);
       } else {
         navigate('/roles');

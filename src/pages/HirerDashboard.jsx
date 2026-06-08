@@ -33,8 +33,14 @@ const HirerDashboard = () => {
   const [showScanModal, setShowScanModal] = useState(false);
   const [scanUid, setScanUid] = useState('');
   const [scanResult, setScanResult] = useState(null);
+  const [scanResultHistory, setScanResultHistory] = useState([]);
   const [scanError, setScanError] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  const [matchesConfirmed, setMatchesConfirmed] = useState(false);
+  const [showMismatchForm, setShowMismatchForm] = useState(false);
+  const [mismatchComment, setMismatchComment] = useState('');
+  const [isReportingMismatch, setIsReportingMismatch] = useState(false);
+  const [isMismatchReported, setIsMismatchReported] = useState(false);
 
   // Notifications State
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
@@ -136,15 +142,26 @@ const HirerDashboard = () => {
 
   const fetchHistory = async () => {
     setActiveTab('history');
-    if (hiringHistory.length > 0) return; 
-
     setIsFetchingHistory(true);
     try {
-      // Mock hiring history
-      setHiringHistory([
-        { id: '1', date: '12/04/2025', workerName: 'Raju K', role: 'Plumber', amount: '₹1500', remark: 'Good hirer, paid on time.' },
-        { id: '2', date: '05/02/2025', workerName: 'Gopi T', role: 'Electrician', amount: '₹800', remark: 'Clear instructions provided.' }
-      ]);
+      const historyRef = collection(db, 'users', currentUser.uid, 'hiringHistory');
+      const snapshot = await getDocs(historyRef);
+      if (!snapshot.empty) {
+        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort newest first
+        items.sort((a, b) => {
+          const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+          const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+          return timeB - timeA;
+        });
+        setHiringHistory(items);
+      } else {
+        // Fallback mock hiring history
+        setHiringHistory([
+          { id: '1', date: '12/04/2025', workerName: 'Raju K', role: 'Plumber', amount: '₹1500', remark: 'Good hirer, paid on time.' },
+          { id: '2', date: '05/02/2025', workerName: 'Gopi T', role: 'Electrician', amount: '₹800', remark: 'Clear instructions provided.' }
+        ]);
+      }
     } catch (error) {
       console.error("Failed to fetch hiring history", error);
     } finally {
@@ -159,6 +176,11 @@ const HirerDashboard = () => {
     setIsScanning(true);
     setScanError('');
     setScanResult(null);
+    setScanResultHistory([]);
+    setMatchesConfirmed(false);
+    setShowMismatchForm(false);
+    setMismatchComment('');
+    setIsMismatchReported(false);
 
     try {
       const docRef = doc(db, "users", scanUid.trim());
@@ -166,7 +188,39 @@ const HirerDashboard = () => {
 
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setScanResult(data);
+        
+        // Expiration check: check if lastVerifiedAt is older than 6 months (180 days)
+        let expired = false;
+        if (data.isVerified && data.lastVerifiedAt) {
+          const lastVerified = new Date(data.lastVerifiedAt);
+          const now = new Date();
+          const diffTime = Math.abs(now - lastVerified);
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          if (diffDays > 180) {
+            expired = true;
+          }
+        }
+
+        // Suspended check
+        if (data.status === 'suspended' || data.isSuspended) {
+          setScanError("❌ Worker account suspended by Admin.");
+          setIsScanning(false);
+          return;
+        }
+
+        // Fetch worker's work history
+        try {
+          const historyRef = collection(db, 'users', docSnap.id, 'workHistory');
+          const historySnap = await getDocs(historyRef);
+          const historyData = historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          historyData.sort((a, b) => (b.sno || 0) - (a.sno || 0));
+          setScanResultHistory(historyData);
+        } catch (historyErr) {
+          console.warn("Could not fetch worker's work history: ", historyErr);
+          setScanResultHistory([]);
+        }
+
+        setScanResult({ id: docSnap.id, ...data, isExpiredScan: expired });
       } else {
         setScanError("❌ Worker not found");
       }
@@ -175,6 +229,49 @@ const HirerDashboard = () => {
       setScanError("❌ Error fetching worker data");
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleReportMismatch = async () => {
+    if (!scanResult) return;
+    setIsReportingMismatch(true);
+    try {
+      const reportData = {
+        workerId: scanResult.id,
+        workerName: scanResult.name || scanResult.displayName || 'N/A',
+        workerEmail: scanResult.email || 'N/A',
+        workerPhoto: scanResult.profilePic || '',
+        reportedByUid: currentUser.uid,
+        reportedByName: userData?.name || currentUser.displayName || 'Hirer',
+        reportedByEmail: currentUser.email,
+        comment: mismatchComment,
+        timestamp: serverTimestamp(),
+        status: 'pending'
+      };
+      
+      // Save report in Firestore mismatchReports collection
+      await addDoc(collection(db, 'mismatchReports'), reportData);
+      
+      // Log it in activity logs for admin dashboard
+      await addDoc(collection(db, 'adminLogs'), {
+        action: 'REPORT_MISMATCH',
+        targetUid: scanResult.id,
+        targetName: scanResult.name || scanResult.displayName || scanResult.email,
+        adminEmail: currentUser.email,
+        timestamp: serverTimestamp(),
+        detail: `Mismatch reported by Hirer: ${mismatchComment}`
+      });
+
+      setIsMismatchReported(true);
+      alert(t('mismatch_reported_msg') || 'Mismatch reported to admin successfully.');
+      setScanResult(null); // Clear scan view
+      setScanResultHistory([]);
+      setShowScanModal(false);
+    } catch (err) {
+      console.error("Failed to report mismatch:", err);
+      alert("Failed to send mismatch report.");
+    } finally {
+      setIsReportingMismatch(false);
     }
   };
 
@@ -242,8 +339,67 @@ const HirerDashboard = () => {
 
       const n = receivedNotifs.find(x => x.id === notifId);
       if (n && n.senderDocId && n.fromUid) {
-        const senderDocRef = doc(db, 'users', n.fromUid, 'sentRequests', n.senderDocId);
-        await updateDoc(senderDocRef, { status: newStatus });
+        try {
+          const senderDocRef = doc(db, 'users', n.fromUid, 'sentRequests', n.senderDocId);
+          await updateDoc(senderDocRef, { status: newStatus });
+        } catch (writeErr) {
+          console.warn("Could not update sender's copy of request: ", writeErr);
+        }
+      }
+
+      // Add to hiring history and worker's work history on acceptance
+      if (newStatus === 'accepted' && n) {
+        let workerRole = 'Worker';
+        try {
+          const workerDocRef = doc(db, 'users', n.fromUid);
+          const workerDoc = await getDoc(workerDocRef);
+          if (workerDoc.exists()) {
+            workerRole = workerDoc.data().role || 'Worker';
+          }
+        } catch (e) {
+          console.error("Error getting worker role:", e);
+        }
+
+        // 1. Write to Hirer's hiring history
+        const hiringHistoryRef = collection(db, 'users', currentUser.uid, 'hiringHistory');
+        await addDoc(hiringHistoryRef, {
+          date: new Date().toLocaleDateString('en-GB'),
+          workerName: n.fromName || 'Worker',
+          workerUid: n.fromUid,
+          role: workerRole,
+          amount: 'Negotiable',
+          remark: 'Waiting for worker remarks.',
+          timestamp: serverTimestamp()
+        });
+
+        // Re-fetch hiring history to update local state in Hirer Dashboard
+        const updatedSnap = await getDocs(hiringHistoryRef);
+        const items = updatedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        items.sort((a, b) => {
+          const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+          const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+          return timeB - timeA;
+        });
+        setHiringHistory(items);
+
+        // 2. Write to Worker's work history (with safe try-catch for rules)
+        try {
+          const workerHistoryRef = collection(db, 'users', n.fromUid, 'workHistory');
+          const workerHistorySnap = await getDocs(workerHistoryRef);
+          const nextSNo = workerHistorySnap.size + 1;
+
+          await addDoc(workerHistoryRef, {
+            sno: nextSNo,
+            location: userData?.place || 'Local Area',
+            role: workerRole,
+            duration: 'Ongoing',
+            amount: 'Negotiable',
+            remark: `Hired by ${userData?.name || currentUser.displayName || 'Hirer'} (${currentUser.email})`,
+            timestamp: serverTimestamp()
+          });
+        } catch (workerHistoryErr) {
+          console.warn("Could not write to worker's work history: ", workerHistoryErr);
+        }
       }
     } catch (error) {
       console.error("Error updating status", error);
@@ -412,14 +568,17 @@ const HirerDashboard = () => {
         <h1 style={{
           fontSize: '3rem',
           fontWeight: 'bold',
-          marginBottom: '1rem',
+          marginBottom: '0.5rem',
           color: '#e141ec',
           textShadow: '0 0 15px rgba(225, 65, 236, 0.5)',
           letterSpacing: '2px',
           textAlign: 'center'
         }}>
-          {t('worker_directory')}
+          {t('hirer_dash')}
         </h1>
+        <h2 style={{ textAlign: 'center', color: '#fff', fontSize: '1.8rem', marginBottom: '1rem', fontFamily: '"Inter", sans-serif' }}>
+          {t('worker_directory')}
+        </h2>
         <p style={{ textAlign: 'center', color: '#b0b0b0', marginBottom: '2rem', fontFamily: '"Inter", sans-serif' }}>
           {t('worker_directory_desc')}
         </p>
@@ -557,7 +716,9 @@ const HirerDashboard = () => {
           backdropFilter: 'blur(5px)',
           display: 'flex',
           justifyContent: 'center',
-          alignItems: 'center',
+          alignItems: 'flex-start',
+          padding: '40px 0',
+          overflowY: 'auto',
           zIndex: 100
         }}>
           <div style={{
@@ -743,7 +904,8 @@ const HirerDashboard = () => {
       {showNotificationsModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 100
         }}>
           <div style={{
             background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
@@ -818,7 +980,9 @@ const HirerDashboard = () => {
           backdropFilter: 'blur(8px)',
           display: 'flex',
           justifyContent: 'center',
-          alignItems: 'center',
+          alignItems: 'flex-start',
+          padding: '40px 0',
+          overflowY: 'auto',
           zIndex: 100
         }}>
           <div style={{
@@ -832,7 +996,7 @@ const HirerDashboard = () => {
             position: 'relative'
           }}>
             <button
-              onClick={() => { setShowScanModal(false); setScanResult(null); setScanError(''); setScanUid(''); }}
+              onClick={() => { setShowScanModal(false); setScanResult(null); setScanResultHistory([]); setScanError(''); setScanUid(''); }}
               style={{
                 position: 'absolute', top: '15px', right: '15px',
                 background: 'transparent', border: 'none', color: '#fff',
@@ -916,41 +1080,223 @@ const HirerDashboard = () => {
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  gap: '8px',
-                  color: '#00e676',
-                  fontSize: '1.1rem',
-                  fontWeight: 'bold',
-                  marginBottom: '10px'
-                }}>
-                  ✓ Verified Worker Match
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
-                  <span style={{ color: '#888' }}>Name</span>
-                  <span style={{ fontWeight: '500', color: '#fff' }}>{scanResult.name || scanResult.displayName || 'N/A'}</span>
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
-                  <span style={{ color: '#888' }}>Role</span>
-                  <span style={{ fontWeight: '500', color: '#e141ec' }}>{scanResult.role || 'Worker'}</span>
-                </div>
+                {scanResult.isExpiredScan ? (
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    gap: '12px',
+                    color: '#ff4c4c',
+                    background: 'rgba(255, 76, 76, 0.1)',
+                    border: '1px solid rgba(255, 76, 76, 0.3)',
+                    padding: '15px',
+                    borderRadius: '8px',
+                    textAlign: 'center'
+                  }}>
+                    <span style={{ fontSize: '2rem' }}>⚠</span>
+                    <span style={{ fontWeight: 'bold' }}>{t('verification_expired_warning') || 'Worker Verification Expired'}</span>
+                    <span style={{ fontSize: '0.85rem', color: '#d0d0d0' }}>
+                      This worker's 6-month verification period has expired. The worker must perform selfie re-verification on their dashboard.
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Selfie Profile Image Display */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '10px 0' }}>
+                      <div style={{
+                        width: '120px',
+                        height: '120px',
+                        borderRadius: '50%',
+                        overflow: 'hidden',
+                        border: '3px solid #e141ec',
+                        boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)',
+                        background: 'rgba(0,0,0,0.2)'
+                      }}>
+                        {scanResult.profilePic ? (
+                          <img src={scanResult.profilePic} alt="Selfie Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '3rem', color: 'rgba(255,255,255,0.2)' }}>👤</div>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.8rem', color: '#e141ec', fontWeight: 'bold', marginTop: '8px', letterSpacing: '0.5px' }}>
+                        🔒 OFFICIAL VERIFIED PHOTO
+                      </span>
+                    </div>
 
-                <button style={{
-                  marginTop: '10px',
-                  background: '#00e676',
-                  color: '#000',
-                  border: 'none',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer'
-                }}>
-                  Initiate Hire
-                </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
+                      <span style={{ color: '#888' }}>Name</span>
+                      <span style={{ fontWeight: '500', color: '#fff' }}>{scanResult.name || scanResult.displayName || 'N/A'}</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
+                      <span style={{ color: '#888' }}>Role</span>
+                      <span style={{ fontWeight: '500', color: '#e141ec' }}>{scanResult.role || 'Worker'}</span>
+                    </div>
+
+                    {/* Scanned Worker's Work History */}
+                    <div style={{
+                      marginTop: '10px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                      borderRadius: '8px',
+                      padding: '12px'
+                    }}>
+                      <div style={{ 
+                        fontWeight: 'bold', 
+                        color: '#e141ec', 
+                        fontSize: '0.9rem', 
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        💼 {t('work_history') || 'Work History'}
+                      </div>
+                      
+                      {scanResultHistory.length === 0 ? (
+                        <div style={{ color: '#888', fontSize: '0.8rem', fontStyle: 'italic', padding: '5px 0' }}>
+                          No past work history recorded.
+                        </div>
+                      ) : (
+                        <div style={{ 
+                          maxHeight: '150px', 
+                          overflowY: 'auto', 
+                          display: 'flex', 
+                          flexDirection: 'column', 
+                          gap: '8px',
+                          paddingRight: '4px'
+                        }}>
+                          {scanResultHistory.map((job) => (
+                            <div key={job.id} style={{ 
+                              background: 'rgba(255, 255, 255, 0.02)', 
+                              border: '1px solid rgba(255, 255, 255, 0.03)', 
+                              borderRadius: '6px', 
+                              padding: '8px',
+                              fontSize: '0.8rem'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <span style={{ fontWeight: 'bold', color: '#fff' }}>{job.role}</span>
+                                <span style={{ color: '#888' }}>{job.location}</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#b0b0b0', fontSize: '0.75rem', marginBottom: '4px' }}>
+                                <span>Duration: {job.duration}</span>
+                                <span style={{ color: '#00e676', fontWeight: 'bold' }}>{job.amount}</span>
+                              </div>
+                              {job.remark && (
+                                <div style={{ 
+                                  fontStyle: 'italic', 
+                                  color: '#d0d0d0', 
+                                  fontSize: '0.75rem', 
+                                  borderTop: '1px dashed rgba(255,255,255,0.05)', 
+                                  paddingTop: '4px',
+                                  marginTop: '4px' 
+                                }}>
+                                  "{job.remark}"
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Yes/No Verification Question */}
+                    {!matchesConfirmed && !showMismatchForm && (
+                      <div style={{ 
+                        marginTop: '15px', padding: '15px', background: 'rgba(255,255,255,0.02)', 
+                        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', textAlign: 'center' 
+                      }}>
+                        <p style={{ margin: '0 0 15px 0', fontSize: '0.95rem', fontWeight: 'bold', color: '#fff', lineHeight: '1.4' }}>
+                          {t('mismatch_question')}
+                        </p>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button 
+                            type="button"
+                            onClick={() => setMatchesConfirmed(true)}
+                            style={{ flex: 1, padding: '10px', background: '#00e676', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px' }}
+                          >
+                            ✓ {t('mismatch_yes')}
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setShowMismatchForm(true)}
+                            style={{ flex: 1, padding: '10px', background: 'transparent', color: '#ff4c4c', border: '1px solid #ff4c4c', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px' }}
+                          >
+                            ✕ {t('mismatch_no')}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Matches Confirmed: Show Hire Action */}
+                    {matchesConfirmed && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                        <div style={{ color: '#00e676', fontWeight: 'bold', textAlign: 'center', fontSize: '0.9rem', marginBottom: '5px' }}>
+                          ✓ Match Confirmed. You can now initiate hiring.
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            handleInvite(scanResult);
+                            setShowScanModal(false);
+                            setScanResult(null);
+                            setScanResultHistory([]);
+                            setMatchesConfirmed(false);
+                          }}
+                          style={{
+                            background: '#00e676',
+                            color: '#000',
+                            border: 'none',
+                            padding: '12px',
+                            borderRadius: '6px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            boxShadow: '0 0 10px rgba(0, 230, 118, 0.4)'
+                          }}
+                        >
+                          Initiate Hire / Invite
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Mismatch Form */}
+                    {showMismatchForm && (
+                      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <label style={{ fontSize: '0.85rem', color: '#ff4c4c', fontWeight: 'bold' }}>Report Profile Mismatch to Admin</label>
+                        <textarea 
+                          placeholder={t('mismatch_comment_placeholder') || "Describe the mismatch (e.g. 'Photo is of a different person')"}
+                          value={mismatchComment}
+                          onChange={(e) => setMismatchComment(e.target.value)}
+                          rows="3"
+                          style={{
+                            width: '100%', padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,76,76,0.3)',
+                            borderRadius: '6px', color: '#fff', boxSizing: 'border-box', fontFamily: '"Inter", sans-serif', fontSize: '0.9rem'
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button 
+                            type="button"
+                            onClick={() => { setShowMismatchForm(false); setMismatchComment(''); }}
+                            style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#ccc', borderRadius: '6px', cursor: 'pointer' }}
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={handleReportMismatch}
+                            disabled={isReportingMismatch || !mismatchComment.trim()}
+                            style={{
+                              flex: 1, padding: '10px', background: '#ff4c4c', color: '#fff', border: 'none', borderRadius: '6px',
+                              fontWeight: 'bold', cursor: isReportingMismatch || !mismatchComment.trim() ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {isReportingMismatch ? 'Reporting...' : 'Submit Report'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>

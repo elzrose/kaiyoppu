@@ -44,6 +44,16 @@ const WorkerDashboard = () => {
   const [workHistory, setWorkHistory] = useState([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
 
+  // Verification Wizard State
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyStep, setVerifyStep] = useState(1); // 1: Aadhaar & Info, 2: Selfie
+  const [aadhaarNo, setAadhaarNo] = useState('');
+  const [capturedSelfie, setCapturedSelfie] = useState(null);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraError, setCameraError] = useState('');
+  const [isExpired, setIsExpired] = useState(false);
+  const videoRef = useRef(null);
+
   useEffect(() => {
     const fetchUserData = async () => {
       if (currentUser?.uid) {
@@ -52,11 +62,30 @@ const WorkerDashboard = () => {
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
             const data = userDocSnap.data();
+            
+            // Check 6-month verification expiration (180 days)
+            let isVerified = data.isVerified || false;
+            let expired = false;
+            if (isVerified && data.lastVerifiedAt) {
+              const lastVerified = new Date(data.lastVerifiedAt);
+              const now = new Date();
+              const diffTime = Math.abs(now - lastVerified);
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              if (diffDays > 180) {
+                expired = true;
+                isVerified = false;
+                await updateDoc(userDocRef, { isVerified: false, isExpired: true });
+                data.isVerified = false;
+                data.isExpired = true;
+              }
+            }
+
             setUserData(data);
             setEditName(data.name || currentUser.displayName || '');
             setEditAge(data.age || '');
             setEditPlace(data.place || '');
             setWorkerStatus(data.status || 'Looking for job');
+            setIsExpired(expired || data.isExpired || false);
           }
         } catch (error) {
           console.error("Failed to fetch user data", error);
@@ -86,19 +115,120 @@ const WorkerDashboard = () => {
     }
   };
 
-  const handleVerify = async () => {
-    if (!editName || !editAge || !editPlace) {
-      alert("Please fill in all fields before verifying.");
+  const startCamera = async () => {
+    setCameraError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 320, facingMode: 'user' } });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error("Error accessing webcam: ", err);
+      setCameraError(t('camera_error_msg') || 'Webcam access denied or unavailable. Please use Simulated/Mock capture.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 320;
+      const ctx = canvas.getContext('2d');
+      // Mirror for natural feel
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedSelfie(dataUrl);
+      stopCamera();
+    }
+  };
+
+  const simulateSelfie = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 320;
+    const ctx = canvas.getContext('2d');
+    
+    // Gradient
+    const gradient = ctx.createLinearGradient(0, 0, 320, 320);
+    gradient.addColorStop(0, '#e141ec');
+    gradient.addColorStop(1, '#302b63');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 320, 320);
+    
+    // Head & shoulders
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(160, 120, 50, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.arc(160, 260, 80, Math.PI, 0);
+    ctx.fill();
+    
+    // Eyes
+    ctx.fillStyle = '#0f0c29';
+    ctx.beginPath();
+    ctx.arc(145, 115, 6, 0, Math.PI * 2);
+    ctx.arc(175, 115, 6, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Smile
+    ctx.strokeStyle = '#0f0c29';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(160, 130, 20, 0, Math.PI);
+    ctx.stroke();
+
+    // Text badge overlay
+    ctx.fillStyle = '#00e676';
+    ctx.font = 'bold 14px "Inter", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("✓ VERIFIED SELFIE MOCK", 160, 300);
+    
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setCapturedSelfie(dataUrl);
+    stopCamera();
+  };
+
+  const handleCompleteVerification = async () => {
+    if (!capturedSelfie) {
+      alert("Please capture your selfie first.");
       return;
     }
     setIsVerifying(true);
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, { name: editName, age: editAge, place: editPlace, isVerified: true });
-      setUserData(prev => ({ ...prev, name: editName, age: editAge, place: editPlace, isVerified: true }));
+      const verifyData = {
+        name: editName,
+        age: editAge,
+        place: editPlace,
+        aadhaarNumber: aadhaarNo,
+        profilePic: capturedSelfie,
+        isVerified: true,
+        isExpired: false,
+        lastVerifiedAt: new Date().toISOString()
+      };
+      await updateDoc(userDocRef, verifyData);
+      setUserData(prev => ({ ...prev, ...verifyData }));
+      setIsExpired(false);
+      setShowVerifyModal(false);
+      setVerifyStep(1);
+      setAadhaarNo('');
+      setCapturedSelfie(null);
+      alert(t('verification_complete_msg'));
     } catch (error) {
-      console.error("Failed to update profile", error);
-      alert("Verification failed.");
+      console.error("Failed to complete verification", error);
+      alert(t('verification_error_msg'));
     } finally {
       setIsVerifying(false);
     }
@@ -208,8 +338,60 @@ const WorkerDashboard = () => {
 
       const n = receivedNotifs.find(x => x.id === notifId);
       if (n && n.senderDocId && n.fromUid) {
-        const senderDocRef = doc(db, 'users', n.fromUid, 'sentRequests', n.senderDocId);
-        await updateDoc(senderDocRef, { status: newStatus });
+        try {
+          const senderDocRef = doc(db, 'users', n.fromUid, 'sentRequests', n.senderDocId);
+          await updateDoc(senderDocRef, { status: newStatus });
+        } catch (writeErr) {
+          console.warn("Could not update sender's copy of request: ", writeErr);
+        }
+      }
+
+      // Add to work history on acceptance
+      if (newStatus === 'accepted' && n) {
+        let location = 'Local Area';
+        try {
+          const hirerDocRef = doc(db, 'users', n.fromUid);
+          const hirerDoc = await getDoc(hirerDocRef);
+          if (hirerDoc.exists()) {
+            location = hirerDoc.data().place || 'Local Area';
+          }
+        } catch (e) {
+          console.error("Error getting hirer place:", e);
+        }
+
+        const historyRef = collection(db, 'users', currentUser.uid, 'workHistory');
+        const historySnap = await getDocs(historyRef);
+        const nextSNo = historySnap.size + 1;
+
+        await addDoc(historyRef, {
+          sno: nextSNo,
+          location: location,
+          role: userData?.role || 'Worker',
+          duration: 'Ongoing',
+          amount: 'Negotiable',
+          remark: `Hired by ${n.fromName} (${n.fromEmail})`,
+          timestamp: serverTimestamp()
+        });
+
+        // Write to Hirer's hiring history
+        try {
+          const hirerHistoryRef = collection(db, 'users', n.fromUid, 'hiringHistory');
+          await addDoc(hirerHistoryRef, {
+            date: new Date().toLocaleDateString('en-GB'),
+            workerName: userData?.name || currentUser.displayName || 'Worker',
+            workerUid: currentUser.uid,
+            role: userData?.role || 'Worker',
+            amount: 'Negotiable',
+            remark: 'Waiting for worker remarks.',
+            timestamp: serverTimestamp()
+          });
+        } catch (hirerErr) {
+          console.warn("Could not write to hirer's hiring history: ", hirerErr);
+        }
+
+        // Re-fetch history to update the local states
+        const updatedSnap = await getDocs(historyRef);
+        setWorkHistory(updatedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }
     } catch (error) {
       console.error("Error updating status", error);
@@ -218,13 +400,15 @@ const WorkerDashboard = () => {
 
   const fetchHistory = async () => {
     setActiveTab('history');
-    if (workHistory.length > 0) return;
     setIsFetchingHistory(true);
     try {
       const historyRef = collection(db, 'users', currentUser.uid, 'workHistory');
       const snapshot = await getDocs(historyRef);
       if (!snapshot.empty) {
-        setWorkHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort items so that the highest sno (newest) appears first
+        items.sort((a, b) => (b.sno || 0) - (a.sno || 0));
+        setWorkHistory(items);
       } else {
         setWorkHistory([
           { id: '1', sno: 1, location: 'Bangalore', role: 'Plumbing', duration: '2 Days', amount: '₹1500', remark: 'Excellent work, very professional.' },
@@ -261,14 +445,14 @@ const WorkerDashboard = () => {
       color: '#fff',
       display: 'flex',
       flexDirection: 'column',
-      justifyContent: 'center',
       alignItems: 'center',
       fontFamily: '"Advent Pro", "Inter", sans-serif',
-      padding: '2rem',
+      padding: '100px 2rem 4rem 2rem',
       boxSizing: 'border-box',
       margin: 0,
       position: 'relative',
-      overflow: 'hidden'
+      overflowX: 'hidden',
+      overflowY: 'auto'
     }}>
       <div style={{ position: 'absolute', top: '25px', left: '35px', zIndex: 10 }}>
         <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '700', color: '#fff', letterSpacing: '3px', textShadow: '0 0 10px rgba(225, 65, 236, 0.4)' }}>
@@ -358,63 +542,175 @@ const WorkerDashboard = () => {
         boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.1)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1
       }}>
-        <div style={{ marginBottom: '2rem', textAlign: 'center', width: '100%' }}>
-          <h2 style={{ fontSize: '1.8rem', margin: '0 0 0.5rem 0', color: '#fff' }}>{userData?.name || currentUser?.displayName || 'Worker'}</h2>
-          <p style={{ fontSize: '1.1rem', color: '#d0d0d0', margin: '0 0 8px 0', fontFamily: '"Inter", sans-serif' }}>{currentUser?.email}</p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
-            {userData?.isVerified ? (
-              <span style={{ background: 'rgba(0, 200, 83, 0.2)', color: '#00e676', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(0, 200, 83, 0.4)' }}>{t('verified')}</span>
-            ) : (
-              <span style={{ background: 'rgba(255, 152, 0, 0.2)', color: '#ff9800', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(255, 152, 0, 0.4)' }}>{t('unverified')}</span>
-            )}
-          </div>
-          <div style={{ marginTop: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '0.9rem', color: '#b0b0b0' }}>Status:</span>
+        {/* Profile Suspension Check */}
+        {userData?.status === 'suspended' || userData?.isSuspended ? (
+          <div style={{ textAlign: 'center', width: '100%', padding: '20px 0' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '15px' }}>🚫</div>
+            <h2 style={{ color: '#ff4c4c', fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '10px' }}>ACCOUNT SUSPENDED</h2>
+            <p style={{ color: '#d0d0d0', fontSize: '0.95rem', lineHeight: '1.5' }}>
+              Your account has been suspended by the administrators due to profile mismatches or background verification issues. Please contact support.
+            </p>
             <button
-              onClick={handleToggleStatus}
-              disabled={isUpdatingStatus}
+              onClick={handleLogout}
               style={{
-                background: workerStatus === 'Looking for job' ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 152, 0, 0.1)',
-                color: workerStatus === 'Looking for job' ? '#00e676' : '#ff9800',
-                border: `1px solid ${workerStatus === 'Looking for job' ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
-                padding: '6px 15px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer'
+                marginTop: '25px', width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff',
+                backgroundColor: 'transparent', border: '1px solid rgba(255, 76, 76, 0.5)', borderRadius: '10px', cursor: 'pointer'
               }}
             >
-              {isUpdatingStatus ? t('updating') : workerStatus === 'Looking for job' ? t('status_looking') : t('status_hired')}
+              SIGN OUT
             </button>
           </div>
-        </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: '2rem', textAlign: 'center', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              {/* Selfie Profile Picture */}
+              <div style={{
+                position: 'relative',
+                width: '100px',
+                height: '100px',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: '2.5px solid #e141ec',
+                boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)',
+                marginBottom: '1rem',
+                background: 'rgba(0, 0, 0, 0.3)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}>
+                {userData?.profilePic ? (
+                  <img src={userData.profilePic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ fontSize: '2.5rem', color: 'rgba(255, 255, 255, 0.3)' }}>👤</div>
+                )}
+                {userData?.isVerified && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    width: '100%',
+                    background: 'rgba(0, 230, 118, 0.85)',
+                    color: '#000',
+                    fontSize: '0.65rem',
+                    fontWeight: 'bold',
+                    padding: '2px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    🔒 Locked
+                  </div>
+                )}
+              </div>
 
-        <div style={{
-          position: 'relative', background: 'rgba(255, 255, 255, 0.9)', padding: '1.5rem',
-          borderRadius: '16px', marginBottom: '2.5rem', boxShadow: '0 0 20px rgba(225, 65, 236, 0.4)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden'
-        }}>
-          {userData?.isVerified ? (
-            <canvas ref={canvasRef} style={{ width: 180, height: 180, borderRadius: '8px' }}></canvas>
-          ) : (
-            <div style={{ width: 180, height: 180, display: 'flex', alignItems: 'center', textAlign: 'center', color: '#0b0b0b', fontWeight: 'bold' }}>
-              {t('qr_unverified_msg')}
+              <h2 style={{ fontSize: '1.8rem', margin: '0 0 0.5rem 0', color: '#fff' }}>{userData?.name || currentUser?.displayName || 'Worker'}</h2>
+              <p style={{ fontSize: '1.1rem', color: '#d0d0d0', margin: '0 0 8px 0', fontFamily: '"Inter", sans-serif' }}>{currentUser?.email}</p>
+              
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
+                {userData?.isVerified ? (
+                  <span style={{ background: 'rgba(0, 200, 83, 0.2)', color: '#00e676', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(0, 200, 83, 0.4)' }}>{t('verified')}</span>
+                ) : (
+                  <span style={{ background: 'rgba(255, 152, 0, 0.2)', color: '#ff9800', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(255, 152, 0, 0.4)' }}>
+                    {isExpired ? 'Verification Expired' : t('unverified')}
+                  </span>
+                )}
+              </div>
+              <div style={{ marginTop: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.9rem', color: '#b0b0b0' }}>Status:</span>
+                <button
+                  onClick={handleToggleStatus}
+                  disabled={isUpdatingStatus}
+                  style={{
+                    background: workerStatus === 'Looking for job' ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+                    color: workerStatus === 'Looking for job' ? '#00e676' : '#ff9800',
+                    border: `1px solid ${workerStatus === 'Looking for job' ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
+                    padding: '6px 15px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer'
+                  }}
+                >
+                  {isUpdatingStatus ? t('updating') : workerStatus === 'Looking for job' ? t('status_looking') : t('status_hired')}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
 
-        <button
-          onClick={handleLogout}
-          style={{
-            width: '100%', padding: '14px', fontSize: '1.1rem', fontWeight: 'bold', color: '#fff',
-            backgroundColor: 'transparent', border: '1px solid rgba(225, 65, 236, 0.5)', borderRadius: '10px', cursor: 'pointer'
-          }}
-        >
-          SIGN OUT
-        </button>
+            {/* QR Code Canvas or Unlock Section */}
+            <div style={{
+              position: 'relative', background: 'rgba(255, 255, 255, 0.9)', padding: '1.5rem',
+              borderRadius: '16px', marginBottom: '2.5rem', boxShadow: '0 0 20px rgba(225, 65, 236, 0.4)',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', overflow: 'hidden',
+              minWidth: '220px', minHeight: '220px'
+            }}>
+              {userData?.isVerified ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                  <canvas ref={canvasRef} style={{ width: 180, height: 180, borderRadius: '8px' }}></canvas>
+                  <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                    <span style={{ color: '#666', fontSize: '0.7rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Worker UID (Click to Copy)
+                    </span>
+                    <span 
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentUser?.uid);
+                        alert("UID copied to clipboard!");
+                      }}
+                      style={{ 
+                        color: '#e141ec', fontSize: '0.75rem', fontFamily: 'monospace', 
+                        cursor: 'pointer', background: 'rgba(225, 65, 236, 0.08)', 
+                        padding: '3px 8px', borderRadius: '4px', border: '1px dashed rgba(225, 65, 236, 0.3)',
+                        fontWeight: 'bold', wordBreak: 'break-all', textAlign: 'center'
+                      }}
+                      title="Click to copy UID"
+                    >
+                      {currentUser?.uid}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ 
+                  width: 180, height: 180, display: 'flex', flexDirection: 'column', 
+                  alignItems: 'center', justifyContent: 'center', textAlign: 'center', 
+                  color: '#0b0b0b', gap: '10px' 
+                }}>
+                  <span style={{ fontSize: '2rem' }}>🔒</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', lineHeight: '1.4' }}>
+                    {isExpired ? 'VERIFICATION EXPIRED' : 'QR CODE LOCKED'}
+                  </span>
+                  <p style={{ fontSize: '0.75rem', color: '#666', margin: 0 }}>
+                    {isExpired ? 'Verification is required every 6 months.' : 'Complete Aadhaar & Selfie verification to unlock.'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Verification Button if Unverified or Expired */}
+            {!userData?.isVerified && (
+              <button
+                onClick={() => setShowVerifyModal(true)}
+                style={{
+                  width: '100%', padding: '14px', fontSize: '1.1rem', fontWeight: 'bold', color: '#fff',
+                  backgroundColor: '#e141ec', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                  marginBottom: '15px', boxShadow: '0 0 15px rgba(225, 65, 236, 0.5)', transition: 'all 0.3s ease'
+                }}
+              >
+                {isExpired ? 'RE-VERIFY PROFILE' : 'VERIFY TO UNLOCK QR'}
+              </button>
+            )}
+
+            <button
+              onClick={handleLogout}
+              style={{
+                width: '100%', padding: '14px', fontSize: '1.1rem', fontWeight: 'bold', color: '#fff',
+                backgroundColor: 'transparent', border: '1px solid rgba(225, 65, 236, 0.5)', borderRadius: '10px', cursor: 'pointer'
+              }}
+            >
+              SIGN OUT
+            </button>
+          </>
+        )}
       </div>
 
       {/* Notifications Modal */}
       {showNotificationsModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 100
         }}>
           <div style={{
             background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
@@ -484,7 +780,8 @@ const WorkerDashboard = () => {
       {showProfileModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 100
         }}>
           <div style={{
             background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
@@ -521,12 +818,36 @@ const WorkerDashboard = () => {
                     </div>
                   </div>
                 )}
-                <input type="text" placeholder={t('full_name')} value={editName} onChange={(e) => setEditName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} />
-                <input type="number" placeholder={t('age')} value={editAge} onChange={(e) => setEditAge(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} />
-                <input type="text" placeholder={t('place')} value={editPlace} onChange={(e) => setEditPlace(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} />
-                <button onClick={handleVerify} disabled={isVerifying || userData?.isVerified} style={{ marginTop: '15px', width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff', backgroundColor: userData?.isVerified ? '#2e7d32' : '#e141ec', border: 'none', borderRadius: '8px', cursor: userData?.isVerified ? 'default' : 'pointer' }}>
-                  {isVerifying ? 'Verifying...' : userData?.isVerified ? t('verified') : t('verify_aadhar')}
-                </button>
+                {userData?.isVerified ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <div style={{ textAlign: 'center', margin: '10px 0' }}>
+                      <span style={{ background: 'rgba(0, 200, 83, 0.15)', color: '#00e676', border: '1px solid #00e676', padding: '8px 16px', borderRadius: '20px', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                        {t('verified')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('full_name')}</span><span>{userData.name}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('age')}</span><span>{userData.age}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('place')}</span><span>{userData.place}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>Aadhaar Number</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
+                    </div>
+                    <p style={{ color: '#a0a0a0', fontSize: '0.8rem', textAlign: 'center', fontStyle: 'italic', margin: '5px 0' }}>
+                      {t('locked_profile_pic_msg')}
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <p style={{ color: '#ff9800', fontSize: '0.9rem', textAlign: 'center', margin: '0 0 10px 0' }}>
+                      {isExpired ? t('reverification_needed_msg') : t('qr_unverified_msg')}
+                    </p>
+                    <button 
+                      onClick={() => { setShowProfileModal(false); setShowVerifyModal(true); }} 
+                      style={{ marginTop: '10px', width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff', backgroundColor: '#e141ec', border: 'none', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)' }}
+                    >
+                      {isExpired ? 'Perform Re-verification' : 'Start Verification Wizard'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {activeTab === 'history' && (
@@ -553,7 +874,8 @@ const WorkerDashboard = () => {
       {showHirersModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 100
         }}>
           <div style={{
             background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.9) 0%, rgba(36, 36, 62, 0.9) 100%)',
@@ -596,6 +918,196 @@ const WorkerDashboard = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verification Wizard Modal */}
+      {showVerifyModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.8)',
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 110
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(48, 43, 99, 0.95) 0%, rgba(36, 36, 62, 0.95) 100%)',
+            border: '1px solid rgba(225, 65, 236, 0.4)', borderRadius: '16px', padding: '30px',
+            width: '90%', maxWidth: '460px', position: 'relative', boxShadow: '0 0 30px rgba(225, 65, 236, 0.3)'
+          }}>
+            <button 
+              onClick={() => { stopCamera(); setShowVerifyModal(false); setVerifyStep(1); setAadhaarNo(''); setCapturedSelfie(null); }} 
+              style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}
+            >
+              ✕
+            </button>
+            
+            <h2 style={{ fontSize: '1.6rem', marginBottom: '10px', color: '#e141ec', textAlign: 'center', fontWeight: 'bold' }}>
+              {t('verify_step_aadhaar')} & {t('verify_step_selfie')}
+            </h2>
+
+            {/* Step Indicators */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '25px', padding: '0 10px', position: 'relative' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, zIndex: 2 }}>
+                <div style={{
+                  width: '30px', height: '30px', borderRadius: '50%', background: verifyStep >= 1 ? '#e141ec' : '#555',
+                  color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '0.9rem'
+                }}>1</div>
+                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 1 ? '#fff' : '#888' }}>Info & Aadhaar</span>
+              </div>
+              <div style={{
+                position: 'absolute', top: '15px', left: '15%', right: '15%', height: '2px',
+                background: verifyStep >= 2 ? '#e141ec' : '#555', zIndex: 1
+              }}></div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, zIndex: 2 }}>
+                <div style={{
+                  width: '30px', height: '30px', borderRadius: '50%', background: verifyStep >= 2 ? '#e141ec' : '#555',
+                  color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '0.9rem'
+                }}>2</div>
+                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 2 ? '#fff' : '#888' }}>Live Selfie</span>
+              </div>
+            </div>
+
+            {/* Step 1 Content: Information Form */}
+            {verifyStep === 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', fontFamily: '"Inter", sans-serif' }}>
+                <div style={{ marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('full_name')}</label>
+                  <input 
+                    type="text" 
+                    value={editName} 
+                    onChange={(e) => setEditName(e.target.value)} 
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                  />
+                </div>
+                <div style={{ marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('age')}</label>
+                  <input 
+                    type="number" 
+                    value={editAge} 
+                    onChange={(e) => setEditAge(e.target.value)} 
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                  />
+                </div>
+                <div style={{ marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('place')}</label>
+                  <input 
+                    type="text" 
+                    value={editPlace} 
+                    onChange={(e) => setEditPlace(e.target.value)} 
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                  />
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Number</label>
+                  <input 
+                    type="text" 
+                    maxLength="12"
+                    placeholder={t('aadhaar_placeholder')}
+                    value={aadhaarNo} 
+                    onChange={(e) => setAadhaarNo(e.target.value.replace(/\D/g, ''))} 
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box', letterSpacing: '1px' }} 
+                  />
+                </div>
+
+                <button 
+                  onClick={() => {
+                    if (!editName || !editAge || !editPlace || !aadhaarNo) {
+                      alert("Please fill out all fields first.");
+                      return;
+                    }
+                    if (aadhaarNo.length !== 12) {
+                      alert("Please enter a valid 12-digit Aadhaar Number.");
+                      return;
+                    }
+                    setVerifyStep(2);
+                    startCamera();
+                  }}
+                  style={{
+                    width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff',
+                    backgroundColor: '#e141ec', border: 'none', borderRadius: '8px', cursor: 'pointer',
+                    boxShadow: '0 0 10px rgba(225, 65, 236, 0.3)'
+                  }}
+                >
+                  {t('aadhaar_confirm')} →
+                </button>
+              </div>
+            )}
+
+            {/* Step 2 Content: Selfie Capture */}
+            {verifyStep === 2 && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px', fontFamily: '"Inter", sans-serif' }}>
+                <p style={{ color: '#ccc', fontSize: '0.85rem', textAlign: 'center', margin: '0 0 10px 0' }}>
+                  {t('selfie_instruction')}
+                </p>
+
+                {/* Webcam Stream / Captured Preview Container */}
+                <div style={{
+                  position: 'relative', width: '220px', height: '220px', borderRadius: '50%',
+                  overflow: 'hidden', border: '3px solid #e141ec', boxShadow: '0 0 15px rgba(225, 65, 236, 0.5)',
+                  background: '#000', display: 'flex', justifyContent: 'center', alignItems: 'center'
+                }}>
+                  {!capturedSelfie ? (
+                    <>
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted 
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                      {cameraError && (
+                        <div style={{ position: 'absolute', padding: '10px', textAlign: 'center', fontSize: '0.75rem', color: '#ff4c4c', background: 'rgba(0,0,0,0.8)' }}>
+                          {cameraError}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <img src={capturedSelfie} alt="Selfie Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )}
+                </div>
+
+                {/* Capture and Mock Controls */}
+                {!capturedSelfie ? (
+                  <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '10px' }}>
+                    <button 
+                      onClick={capturePhoto} 
+                      style={{ flex: 1, padding: '10px', background: '#00e676', border: 'none', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                      📸 {t('selfie_capture')}
+                    </button>
+                    <button 
+                      onClick={simulateSelfie} 
+                      style={{ flex: 1, padding: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(225, 65, 236, 0.5)', color: '#fff', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                      ⚙️ {t('selfie_mock')}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '10px' }}>
+                    <button 
+                      onClick={() => { setCapturedSelfie(null); startCamera(); }} 
+                      style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid #ff4c4c', color: '#ff4c4c', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                      ↩ {t('selfie_retry')}
+                    </button>
+                    <button 
+                      onClick={handleCompleteVerification} 
+                      disabled={isVerifying}
+                      style={{ flex: 1, padding: '10px', background: '#00e676', border: 'none', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: isVerifying ? 'not-allowed' : 'pointer', boxShadow: '0 0 10px rgba(0, 230, 118, 0.4)' }}
+                    >
+                      {isVerifying ? 'Saving...' : `✓ ${t('selfie_submit')}`}
+                    </button>
+                  </div>
+                )}
+                
+                <button 
+                  onClick={() => { stopCamera(); setVerifyStep(1); setCapturedSelfie(null); }} 
+                  style={{ background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '0.85rem', marginTop: '5px', textDecoration: 'underline' }}
+                >
+                  ← Go back to Info
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

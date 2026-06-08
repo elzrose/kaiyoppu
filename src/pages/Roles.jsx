@@ -12,11 +12,12 @@ const Roles = () => {
   const { t } = useTranslation();
   
   useEffect(() => {
-    // If they already have a valid mapped role in DB, jump to dashboard immediately
-    if (userRole && ['worker', 'hirer', 'admin'].includes(userRole)) {
+    if (currentUser && currentUser.email === 'admin@kaiyoppu.com') {
+      navigate('/admin');
+    } else if (userRole && ['worker', 'hirer', 'admin'].includes(userRole)) {
       navigate(`/${userRole}`);
     }
-  }, [userRole, navigate]);
+  }, [userRole, currentUser, navigate]);
 
   const roles = [
     { id: 'worker', name: t('role_worker'), desc: t('role_worker_desc') },
