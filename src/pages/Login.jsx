@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import { ADMIN_EMAILS } from './AdminDashboard';
 import './Login.css';
 
 const Login = () => {
@@ -15,10 +16,9 @@ const Login = () => {
   const navigate = useNavigate();
   const { loginWithGoogle, loginWithEmail, signupWithEmail, currentUser, userRole } = useAuth();
 
-  // On mount or state change, intercept if they are already logged in
   useEffect(() => {
     if (currentUser) {
-      if (currentUser.email === 'admin@kaiyoppu.com') {
+      if (ADMIN_EMAILS.includes(currentUser.email)) {
         navigate('/admin');
       } else if (userRole && ['worker', 'hirer', 'admin'].includes(userRole)) {
         navigate(`/${userRole}`);

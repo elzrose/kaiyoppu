@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
-const ADMIN_EMAILS = ['admin@kaiyoppu.com'];
+export const ADMIN_EMAILS = ['admin@kaiyoppu.com', 'admin@kaiyoppu.in', 'admin123@kaiyoppu.com'];
 
 const AdminDashboard = () => {
   const { t } = useTranslation();
@@ -18,15 +18,17 @@ const AdminDashboard = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalWorkers: 0, totalHirers: 0, verifiedWorkers: 0 });
+  
+  // Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const isAdmin = currentUser && (ADMIN_EMAILS.includes(currentUser.email) || userRole === 'admin');
 
   useEffect(() => {
-    // Access Control
-    if (!currentUser || !isAdmin) {
-      navigate('/');
-    }
-  }, [currentUser, isAdmin, navigate]);
+    // We do not auto-redirect on unauthorized here anymore.
+    // Instead we rely on the component returning the Unauthorized UI below,
+    // which has a "Sign Out" button so the user doesn't get stuck.
+  }, [currentUser, navigate]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -254,7 +256,29 @@ const AdminDashboard = () => {
   };
 
   if (!currentUser || !isAdmin) {
-    return <div style={{ background: '#0b0b0b', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#ff4c4c' }}>Unauthorized</div>;
+    return (
+      <div style={{ background: '#0b0b0b', height: '100vh', display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'center', alignItems: 'center', color: '#ff4c4c', fontFamily: '"Inter", sans-serif' }}>
+        <h2>Unauthorized Access</h2>
+        <p style={{ color: '#fff' }}>You are logged in as <strong>{currentUser?.email || 'Unknown'}</strong>, which is not an admin.</p>
+        <button 
+          onClick={async () => {
+            await logout();
+            navigate('/login');
+          }}
+          style={{
+            background: 'transparent',
+            border: '1px solid #ff4c4c',
+            color: '#ff4c4c',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          Sign Out & Switch Account
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -269,18 +293,10 @@ const AdminDashboard = () => {
       boxSizing: 'border-box'
     }}>
       {/* Top Navbar */}
-      <nav style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '20px 40px',
-        borderBottom: '1px solid rgba(225, 65, 236, 0.2)',
-        background: 'rgba(15, 12, 41, 0.8)',
-        backdropFilter: 'blur(10px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
+      <nav className="dashboard-nav fixed" style={{ position: 'sticky' }}>
+        {isMobileMenuOpen && (
+          <div className="mobile-menu-overlay hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}></div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <h2 style={{
             margin: 0,
@@ -292,8 +308,13 @@ const AdminDashboard = () => {
           }}>
             {t('app_name')} <span style={{ color: '#e141ec' }}>ADMIN</span>
           </h2>
-          <LanguageSwitcher />
         </div>
+        <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          ☰
+        </button>
+        <div className={`nav-actions ${isMobileMenuOpen ? 'open' : ''}`}>
+          <button className="close-menu-btn hide-on-desktop" onClick={() => setIsMobileMenuOpen(false)}>✕</button>
+          <LanguageSwitcher />
         <button
           onClick={handleLogout}
           style={{
@@ -317,6 +338,7 @@ const AdminDashboard = () => {
         >
           {t('sign_out')}
         </button>
+        </div>
       </nav>
 
       {/* Main Content Area */}
@@ -455,7 +477,7 @@ const AdminDashboard = () => {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
+            <div className="admin-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
               {/* User Management Table */}
               <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
@@ -465,6 +487,7 @@ const AdminDashboard = () => {
                 overflowX: 'auto'
               }}>
                 <h3 style={{ margin: '0 0 20px 0', color: '#e141ec', fontSize: '1.4rem' }}>{t('user_management')}</h3>
+                <div className="responsive-table-wrapper">
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
@@ -527,6 +550,7 @@ const AdminDashboard = () => {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Activity Logs Sidebar */}
