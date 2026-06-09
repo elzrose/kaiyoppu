@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db, googleProvider } from '../firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, addDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
@@ -68,6 +68,30 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     return signOut(auth);
   };
+
+  useEffect(() => {
+    const seedCctnsDb = async () => {
+      try {
+        const cctnsRef = collection(db, 'cctnsDb');
+        const snap = await getDocs(cctnsRef);
+        if (snap.empty) {
+          const mockRecords = [
+            { name: 'Amit Kumar', aadhaarNumber: '111122223333', type: 'wanted', offense: 'Theft & Assault (Wanted by Police)' },
+            { name: 'Raju wanted', aadhaarNumber: '123412341234', type: 'wanted', offense: 'Robbery & Fraud (Wanted by Police)' },
+            { name: 'Gopi review', aadhaarNumber: '567856785678', type: 'fir', offense: 'FIR No. 204/2026: Property Dispute (Under Police Review)' },
+            { name: 'FIR pending', aadhaarNumber: '888888888888', type: 'fir', offense: 'FIR No. 102/2025: Traffic Offense (Under Police Review)' },
+          ];
+          for (const record of mockRecords) {
+            await addDoc(cctnsRef, record);
+          }
+          console.log("CCTNS database successfully seeded with mock criminal profiles.");
+        }
+      } catch (e) {
+        console.warn("Failed to seed CCTNS DB:", e);
+      }
+    };
+    seedCctnsDb();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, doc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
@@ -15,7 +15,6 @@ const AdminDashboard = () => {
 
   const [usersList, setUsersList] = useState([]);
   const [reportsList, setReportsList] = useState([]);
-  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalWorkers: 0, totalHirers: 0, verifiedWorkers: 0 });
   
@@ -23,6 +22,19 @@ const AdminDashboard = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const isAdmin = currentUser && (ADMIN_EMAILS.includes(currentUser.email) || userRole === 'admin');
+
+  // Candidate Search & Filter State
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userTypeFilter, setUserTypeFilter] = useState('all'); // 'all' | 'worker' | 'hirer'
+
+  const filteredUsers = usersList.filter(user => {
+    const matchesSearch = 
+      (user.name || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      (user.email || '').toLowerCase().includes(userSearchQuery.toLowerCase());
+    
+    if (userTypeFilter === 'all') return matchesSearch;
+    return matchesSearch && (user.role || '').toLowerCase() === userTypeFilter;
+  });
 
   useEffect(() => {
     // We do not auto-redirect on unauthorized here anymore.
@@ -71,8 +83,7 @@ const AdminDashboard = () => {
         console.error("Error fetching mismatch reports:", reportsErr);
       }
 
-      // Fetch logs
-      await fetchLogs();
+      // Logs fetching removed
     } catch (error) {
       console.error("Error fetching data", error);
     } finally {
@@ -117,7 +128,6 @@ const AdminDashboard = () => {
         setStats(prev => ({ ...prev, verifiedWorkers: prev.verifiedWorkers + 1 }));
       }
       await logAction('VERIFIED', user);
-      await fetchLogs();
     } catch (error) {
       console.error(error);
       alert("Failed to verify user.");
@@ -136,7 +146,6 @@ const AdminDashboard = () => {
         setStats(prev => ({ ...prev, verifiedWorkers: prev.verifiedWorkers - 1 }));
       }
       await logAction('REJECTED', user);
-      await fetchLogs();
     } catch (error) {
       console.error(error);
       alert("Failed to reject user.");
@@ -144,13 +153,13 @@ const AdminDashboard = () => {
   };
 
   const handleAddRemark = async (user) => {
-    const remark = prompt("Add official admin remark (e.g. criminal cases):");
-    if (remark) {
+    const remark = prompt("Add official admin remark (e.g. criminal cases):", user.adminRemark || "");
+    if (remark !== null) {
       try {
         await updateDoc(doc(db, 'users', user.id), { adminRemark: remark });
-        alert("Remark added successfully.");
+        setUsersList(prev => prev.map(u => u.id === user.id ? { ...u, adminRemark: remark } : u));
+        alert("Remark updated successfully.");
         await logAction('REMARK ADDED', user);
-        await fetchLogs();
       } catch(e) {
         console.error(e);
       }
@@ -231,29 +240,7 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchLogs = async () => {
-    try {
-      let logsData = [];
-      try {
-        const q = query(collection(db, 'adminLogs'), orderBy('timestamp', 'desc'), limit(15));
-        const logsSnap = await getDocs(q);
-        logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch (logQueryErr) {
-        console.warn("Index not ready for logs ordering, falling back to client-side sort", logQueryErr);
-        const logsSnap = await getDocs(collection(db, 'adminLogs'));
-        logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        logsData.sort((a, b) => {
-          const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
-          const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
-          return tB - tA;
-        });
-        logsData = logsData.slice(0, 15);
-      }
-      setLogs(logsData);
-    } catch (error) {
-      console.error(error);
-    }
-  };
+
 
   if (!currentUser || !isAdmin) {
     return (
@@ -477,7 +464,7 @@ const AdminDashboard = () => {
               )}
             </div>
 
-            <div className="admin-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
+            <div className="admin-grid" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '30px' }}>
               {/* User Management Table */}
               <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
@@ -487,6 +474,67 @@ const AdminDashboard = () => {
                 overflowX: 'auto'
               }}>
                 <h3 style={{ margin: '0 0 20px 0', color: '#e141ec', fontSize: '1.4rem' }}>{t('user_management')}</h3>
+
+                {/* Search & Filters */}
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '15px',
+                  marginBottom: '20px',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  {/* Search input */}
+                  <input
+                    type="text"
+                    placeholder="Search candidate by name or email..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(225, 65, 236, 0.3)',
+                      borderRadius: '8px',
+                      padding: '10px 15px',
+                      color: '#fff',
+                      fontSize: '0.9rem',
+                      fontFamily: '"Inter", sans-serif',
+                      minWidth: '260px',
+                      outline: 'none',
+                      transition: 'border-color 0.3s',
+                    }}
+                  />
+
+                  {/* Filter tabs */}
+                  <div style={{
+                    display: 'flex',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    padding: '4px'
+                  }}>
+                    {['all', 'worker', 'hirer'].map((filter) => (
+                      <button
+                        key={filter}
+                        onClick={() => setUserTypeFilter(filter)}
+                        style={{
+                          background: userTypeFilter === filter ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+                          color: userTypeFilter === filter ? '#fff' : '#a0a0a0',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '0.85rem',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          textTransform: 'capitalize'
+                        }}
+                      >
+                        {filter === 'all' ? 'All Users' : filter === 'worker' ? 'Workers' : 'Hirers'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="responsive-table-wrapper">
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
@@ -494,54 +542,53 @@ const AdminDashboard = () => {
                       <th style={tableHeaderStyle}>Name</th>
                       <th style={tableHeaderStyle}>Email</th>
                       <th style={tableHeaderStyle}>Role</th>
-                      <th style={tableHeaderStyle}>Status</th>
+                      <th style={tableHeaderStyle}>CCTNS / Verification Status</th>
+                      <th style={tableHeaderStyle}>Admin Remark</th>
                       <th style={tableHeaderStyle}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {usersList.map(user => (
+                    {filteredUsers.map(user => (
                       <tr key={user.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <td style={tableCellStyle}>{user.name || 'Unnamed'}</td>
                         <td style={tableCellStyle}>{user.email}</td>
                         <td style={tableCellStyle}>
                           <span style={{
                             padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold',
-                            background: user.role === 'Worker' ? 'rgba(225, 65, 236, 0.1)' : 'rgba(0, 230, 118, 0.1)',
-                            color: user.role === 'Worker' ? '#e141ec' : '#00e676'
+                            background: (user.role || '').toLowerCase() === 'worker' ? 'rgba(225, 65, 236, 0.1)' : 'rgba(0, 230, 118, 0.1)',
+                            color: (user.role || '').toLowerCase() === 'worker' ? '#e141ec' : '#00e676'
                           }}>
                             {user.role || 'Unassigned'}
                           </span>
                         </td>
                         <td style={tableCellStyle}>
-                          {user.isVerified ? (
-                            <span style={{ color: '#00e676', fontWeight: 'bold' }}>✓ Verified</span>
+                          {user.verificationStatus === 'blocked' ? (
+                            <span style={{ color: '#ff4c4c', fontWeight: 'bold', background: 'rgba(255,76,76,0.1)', padding: '3px 8px', borderRadius: '6px' }}>🚨 Blocked</span>
+                          ) : user.verificationStatus === 'on_review' ? (
+                            <span style={{ color: '#ff9800', fontWeight: 'bold', background: 'rgba(255,152,0,0.1)', padding: '3px 8px', borderRadius: '6px' }}>⚠ On Review</span>
+                          ) : user.verificationStatus === 'verified' || user.isVerified ? (
+                            <span style={{ color: '#00e676', fontWeight: 'bold', background: 'rgba(0,230,118,0.1)', padding: '3px 8px', borderRadius: '6px' }}>✓ Verified</span>
                           ) : (
-                            <span style={{ color: '#ffb300' }}>Pending</span>
+                            <span style={{ color: '#a0a0a0', fontStyle: 'italic' }}>Unverified</span>
+                          )}
+                        </td>
+                        <td style={{ ...tableCellStyle, maxWidth: '200px', wordBreak: 'break-word' }}>
+                          {user.adminRemark ? (
+                            <span style={{ color: '#ff70ca', fontStyle: 'italic' }}>"{user.adminRemark}"</span>
+                          ) : user.cctnsRemark ? (
+                            <span style={{ color: '#a0a0a0', fontStyle: 'italic' }}>"{user.cctnsRemark}"</span>
+                          ) : (
+                            <span style={{ color: '#555', fontStyle: 'italic' }}>No remarks</span>
                           )}
                         </td>
                         <td style={tableCellStyle}>
                           {(user.role?.toLowerCase() === 'worker' || user.role?.toLowerCase() === 'hirer') ? (
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                              <button 
-                                onClick={() => handleVerify(user)}
-                                disabled={user.isVerified}
-                                style={user.isVerified ? disabledBtnStyle : verifyBtnStyle}
-                              >
-                                {t('verify')}
-                              </button>
-                              <button 
-                                onClick={() => handleReject(user)}
-                                style={rejectBtnStyle}
-                              >
-                                {t('reject')}
-                              </button>
-                              <button 
-                                onClick={() => handleAddRemark(user)}
-                                style={remarkBtnStyle}
-                              >
-                                {t('remark')}
-                              </button>
-                            </div>
+                            <button 
+                              onClick={() => handleAddRemark(user)}
+                              style={remarkBtnStyle}
+                            >
+                              {t('remark')}
+                            </button>
                           ) : (
                             <span style={{ color: '#555', fontStyle: 'italic' }}>N/A</span>
                           )}
@@ -552,44 +599,6 @@ const AdminDashboard = () => {
                 </table>
                 </div>
               </div>
-
-              {/* Activity Logs Sidebar */}
-              <div style={{
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '16px',
-                padding: '25px',
-                height: 'fit-content'
-              }}>
-                <h3 style={{ margin: '0 0 20px 0', color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                  Activity Logs
-                </h3>
-                
-                {logs.length === 0 ? (
-                  <p style={{ color: '#888', fontStyle: 'italic' }}>No recent activity.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    {logs.map(log => (
-                      <div key={log.id} style={{
-                        padding: '12px',
-                        background: 'rgba(0,0,0,0.3)',
-                        borderRadius: '8px',
-                        borderLeft: `3px solid ${log.action === 'VERIFIED' ? '#00e676' : '#ff4c4c'}`
-                      }}>
-                        <div style={{ fontSize: '0.85rem', color: '#b0b0b0', marginBottom: '4px' }}>
-                          {log.timestamp ? log.timestamp.toDate().toLocaleString() : 'Just now'}
-                        </div>
-                        <div style={{ fontSize: '0.95rem', color: '#fff' }}>
-                          <span style={{ color: log.action === 'VERIFIED' ? '#00e676' : '#ff4c4c', fontWeight: 'bold' }}>{log.action}</span>: {log.targetName}
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px' }}>by {log.adminEmail}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
             </div>
           </>
         )}
@@ -631,7 +640,11 @@ const tableHeaderStyle = {
   fontWeight: 'bold',
   fontSize: '0.9rem',
   textTransform: 'uppercase',
-  letterSpacing: '1px'
+  letterSpacing: '1px',
+  position: 'sticky',
+  top: 0,
+  background: '#1c1842', // Matches card background to overlap scrolling items
+  zIndex: 2
 };
 
 const tableCellStyle = {

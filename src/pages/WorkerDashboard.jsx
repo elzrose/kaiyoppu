@@ -210,6 +210,38 @@ const WorkerDashboard = () => {
     }
     setIsVerifying(true);
     try {
+      // 1. Perform CCTNS background check against our fake DB
+      let verificationStatus = 'verified';
+      let cctnsRemark = 'Cleared by CCTNS';
+      let isVerified = true;
+
+      try {
+        const cctnsRef = collection(db, 'cctnsDb');
+        const cctnsSnap = await getDocs(cctnsRef);
+        const cctnsList = cctnsSnap.docs.map(doc => doc.data());
+
+        // Find a match based on Aadhaar Number (exact match) or Name (case-insensitive substring match)
+        const match = cctnsList.find(record => 
+          (record.aadhaarNumber && record.aadhaarNumber.trim() === aadhaarNo.trim()) ||
+          (record.name && record.name.toLowerCase().trim() === editName.toLowerCase().trim())
+        );
+
+        if (match) {
+          if (match.type === 'wanted') {
+            verificationStatus = 'blocked';
+            cctnsRemark = match.offense || 'CCTNS Blocked: Wanted criminal';
+            isVerified = false; // "blocked no qr"
+          } else if (match.type === 'fir') {
+            verificationStatus = 'on_review';
+            cctnsRemark = match.offense || 'CCTNS Review: FIR pending';
+            isVerified = true; // "review as on review and qr yes"
+          }
+        }
+      } catch (checkErr) {
+        console.error("CCTNS Verification failed, falling back to verified", checkErr);
+      }
+
+      // 2. Save details to Firestore
       const userDocRef = doc(db, 'users', currentUser.uid);
       const verifyData = {
         name: editName,
@@ -217,9 +249,11 @@ const WorkerDashboard = () => {
         place: editPlace,
         aadhaarNumber: aadhaarNo,
         profilePic: capturedSelfie,
-        isVerified: true,
+        isVerified: isVerified,
         isExpired: false,
-        lastVerifiedAt: new Date().toISOString()
+        lastVerifiedAt: new Date().toISOString(),
+        verificationStatus: verificationStatus,
+        cctnsRemark: cctnsRemark
       };
       await updateDoc(userDocRef, verifyData);
       setUserData(prev => ({ ...prev, ...verifyData }));
@@ -228,7 +262,15 @@ const WorkerDashboard = () => {
       setVerifyStep(1);
       setAadhaarNo('');
       setCapturedSelfie(null);
-      alert(t('verification_complete_msg'));
+
+      // 3. Show appropriate alert based on the status
+      if (verificationStatus === 'blocked') {
+        alert("Verification completed. CCTNS Background Check: BLOCKED (Criminal Record Found)");
+      } else if (verificationStatus === 'on_review') {
+        alert("Verification completed. CCTNS Background Check: UNDER POLICE REVIEW (FIR Record Found)");
+      } else {
+        alert(t('verification_complete_msg'));
+      }
     } catch (error) {
       console.error("Failed to complete verification", error);
       alert(t('verification_error_msg'));
@@ -575,6 +617,27 @@ const WorkerDashboard = () => {
           </div>
         ) : (
           <>
+            {userData?.verificationStatus && (
+              <div style={{
+                background: userData.verificationStatus === 'blocked' ? 'rgba(255, 76, 76, 0.1)' : userData.verificationStatus === 'on_review' ? 'rgba(255, 152, 0, 0.1)' : 'rgba(0, 230, 118, 0.1)',
+                border: userData.verificationStatus === 'blocked' ? '1px solid rgba(255, 76, 76, 0.4)' : userData.verificationStatus === 'on_review' ? '1px solid rgba(255, 152, 0, 0.4)' : '1px solid rgba(0, 230, 118, 0.4)',
+                color: userData.verificationStatus === 'blocked' ? '#ff4c4c' : userData.verificationStatus === 'on_review' ? '#ff9800' : '#00e676',
+                padding: '10px 15px',
+                borderRadius: '10px',
+                marginBottom: '15px',
+                width: '100%',
+                boxSizing: 'border-box',
+                textAlign: 'center',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                lineHeight: '1.4'
+              }}>
+                {userData.verificationStatus === 'blocked' && `🚨 CCTNS BLOCKED: ${userData.cctnsRemark || 'Criminal Record Detected'}`}
+                {userData.verificationStatus === 'on_review' && `⚠ CCTNS ON REVIEW: ${userData.cctnsRemark || 'Active FIR Pending Review'}`}
+                {userData.verificationStatus === 'verified' && `✓ CCTNS VERIFIED: ${userData.cctnsRemark || 'No Criminal Records Found'}`}
+              </div>
+            )}
+
             <div style={{ marginBottom: '2rem', textAlign: 'center', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               {/* Selfie Profile Picture */}
               <div style={{
