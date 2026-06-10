@@ -47,9 +47,10 @@ const HirerDashboard = () => {
 
   // Notifications State
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
-  const [notifTab, setNotifTab] = useState('received'); // 'received' | 'sent'
+  const [notifTab, setNotifTab] = useState('received'); // 'received' | 'sent' | 'system'
   const [receivedNotifs, setReceivedNotifs] = useState([]);
   const [sentNotifs, setSentNotifs] = useState([]);
+  const [systemNotifications, setSystemNotifications] = useState([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
   const [invitedWorkers, setInvitedWorkers] = useState([]);
   const [blockedWorkers, setBlockedWorkers] = useState([]);
@@ -244,6 +245,8 @@ const HirerDashboard = () => {
         workerName: scanResult.name || scanResult.displayName || 'N/A',
         workerEmail: scanResult.email || 'N/A',
         workerPhoto: scanResult.profilePic || '',
+        workerAadhaarNumber: scanResult.aadhaarNumber || '',
+        workerAadhaarCardPic: scanResult.aadhaarCardPic || '',
         reportedByUid: currentUser.uid,
         reportedByName: userData?.name || currentUser.displayName || 'Hirer',
         reportedByEmail: currentUser.email,
@@ -255,6 +258,14 @@ const HirerDashboard = () => {
       // Save report in Firestore mismatchReports collection
       await addDoc(collection(db, 'mismatchReports'), reportData);
       
+      // Block/Lock the worker account immediately until manual admin review
+      const workerDocRef = doc(db, 'users', scanResult.id);
+      await updateDoc(workerDocRef, {
+        isVerified: false,
+        verificationStatus: 'blocked',
+        cctnsRemark: `Flagged for selfie mismatch review. Comment: "${mismatchComment}"`
+      });
+
       // Log it in activity logs for admin dashboard
       await addDoc(collection(db, 'adminLogs'), {
         action: 'REPORT_MISMATCH',
@@ -327,6 +338,16 @@ const HirerDashboard = () => {
       const sentRef = collection(db, 'users', currentUser.uid, 'sentRequests');
       const sentSnap = await getDocs(sentRef);
       setSentNotifs(sentSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      const sysRef = collection(db, 'users', currentUser.uid, 'systemNotifications');
+      const sysSnap = await getDocs(sysRef);
+      const sysData = sysSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      sysData.sort((a, b) => {
+        const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+        const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+        return tB - tA;
+      });
+      setSystemNotifications(sysData);
     } catch (error) {
       console.error("Failed to fetch notifications", error);
     } finally {
@@ -914,6 +935,7 @@ const HirerDashboard = () => {
             <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
               <button onClick={() => setNotifTab('received')} style={tabStyle('received', notifTab)}>{t('received_applications')}</button>
               <button onClick={() => setNotifTab('sent')} style={tabStyle('sent', notifTab)}>{t('sent_invitations')}</button>
+              <button onClick={() => setNotifTab('system')} style={tabStyle('system', notifTab)}>System Alerts</button>
             </div>
 
             <div style={{ overflowY: 'auto', maxHeight: '400px', paddingRight: '10px', fontFamily: '"Inter", sans-serif' }}>
@@ -947,7 +969,7 @@ const HirerDashboard = () => {
                     ))}
                   </div>
                 )
-              ) : (
+              ) : notifTab === 'sent' ? (
                 sentNotifs.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>{t('no_invitations_sent')}</div> : (
                   <div style={{ display: 'grid', gap: '15px' }}>
                     {sentNotifs.map(n => (
@@ -957,6 +979,20 @@ const HirerDashboard = () => {
                         {n.status === 'accepted' && (
                           <div style={{ color: '#00e676', fontWeight: 'bold' }}>📞 +91 9876543210</div>
                         )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                systemNotifications.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>No system alerts received.</div> : (
+                  <div style={{ display: 'grid', gap: '15px' }}>
+                    {systemNotifications.map(n => (
+                      <div key={n.id} style={{ background: 'rgba(225,65,236,0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(225,65,236,0.2)' }}>
+                        <div style={{ fontWeight: 'bold', color: '#e141ec', marginBottom: '5px' }}>📢 {n.title || 'System Alert'}</div>
+                        <div style={{ color: '#fff', fontSize: '0.95rem', marginBottom: '8px' }}>{n.message}</div>
+                        <div style={{ color: '#666', fontSize: '0.75rem' }}>
+                          {n.timestamp?.toDate ? n.timestamp.toDate().toLocaleString() : new Date(n.timestamp || 0).toLocaleString()}
+                        </div>
                       </div>
                     ))}
                   </div>

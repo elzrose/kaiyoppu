@@ -52,10 +52,115 @@ const WorkerDashboard = () => {
   const [verifyStep, setVerifyStep] = useState(1); // 1: Aadhaar & Info, 2: Selfie
   const [aadhaarNo, setAadhaarNo] = useState('');
   const [capturedSelfie, setCapturedSelfie] = useState(null);
+  const [aadhaarCardPic, setAadhaarCardPic] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState('');
   const [isExpired, setIsExpired] = useState(false);
   const videoRef = useRef(null);
+
+  const [timeLeftStr, setTimeLeftStr] = useState('');
+  const [isDeadlinePassed, setIsDeadlinePassed] = useState(false);
+
+  useEffect(() => {
+    if (userData?.verificationStatus === 'reverification_required' && userData?.reverifyDeadline) {
+      const updateTime = () => {
+        let deadlineTime = 0;
+        if (userData.reverifyDeadline.toDate) {
+          deadlineTime = userData.reverifyDeadline.toDate().getTime();
+        } else if (userData.reverifyDeadline.seconds) {
+          deadlineTime = userData.reverifyDeadline.seconds * 1000;
+        } else {
+          deadlineTime = new Date(userData.reverifyDeadline).getTime();
+        }
+
+        const now = new Date().getTime();
+        const diff = deadlineTime - now;
+        
+        if (diff <= 0) {
+          setTimeLeftStr('Expired');
+          setIsDeadlinePassed(true);
+        } else {
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          setTimeLeftStr(`${hours}h ${minutes}m ${seconds}s`);
+          setIsDeadlinePassed(false);
+        }
+      };
+      
+      updateTime();
+      const interval = setInterval(updateTime, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [userData]);
+
+  const simulateAadhaarCard = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 450;
+    canvas.height = 280;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = '#f4f6f9';
+    ctx.fillRect(0, 0, 450, 280);
+    
+    ctx.strokeStyle = '#0066cc';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, 446, 276);
+    
+    ctx.fillStyle = '#0055aa';
+    ctx.fillRect(4, 4, 442, 40);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px "Inter", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("UNIQUE IDENTIFICATION AUTHORITY OF INDIA", 225, 28);
+    
+    ctx.fillStyle = '#ff6600';
+    ctx.beginPath();
+    ctx.arc(400, 90, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px "Inter", sans-serif';
+    ctx.fillText("AADHAAR", 400, 125);
+    
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(20, 60, 25, 25);
+    
+    ctx.fillStyle = '#cccccc';
+    ctx.fillRect(20, 100, 100, 120);
+    ctx.fillStyle = '#666666';
+    ctx.beginPath();
+    ctx.arc(70, 140, 25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(70, 210, 40, Math.PI, 0);
+    ctx.fill();
+    
+    ctx.fillStyle = '#333333';
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px "Inter", sans-serif';
+    ctx.fillText("GOVERNMENT OF INDIA", 140, 75);
+    
+    ctx.font = '11px "Inter", sans-serif';
+    ctx.fillText("Name / பெயர்: " + (editName || "Worker Name"), 140, 110);
+    ctx.fillText("DOB / பிறந்த தேதி: " + (editAge ? `Age ${editAge} Yrs` : "N/A"), 140, 130);
+    ctx.fillText("Gender / பாலினம்: Male", 140, 150);
+    ctx.fillText("Address / முகவரி: " + (editPlace || "N/A"), 140, 170);
+    
+    ctx.fillStyle = '#cc3300';
+    ctx.font = 'bold 18px "Inter", sans-serif';
+    ctx.fillText(aadhaarNo ? `${aadhaarNo.slice(0, 4)}  ${aadhaarNo.slice(4, 8)}  ${aadhaarNo.slice(8, 12)}` : "1234  5678  9012", 140, 210);
+    
+    ctx.fillStyle = '#0055aa';
+    ctx.fillRect(4, 250, 442, 26);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px "Inter", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("ஆதார் - சாதாரண மனிதனின் அதிகாரம்", 225, 266);
+    
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setAadhaarCardPic(dataUrl);
+  };
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -243,17 +348,29 @@ const WorkerDashboard = () => {
 
       // 2. Save details to Firestore
       const userDocRef = doc(db, 'users', currentUser.uid);
+      const isReverifying = userData?.verificationStatus === 'reverification_required' || userData?.verificationStatus === 'pending_admin_reverify';
+      let finalVerificationStatus = verificationStatus;
+      let finalIsVerified = isVerified;
+      let finalCctnsRemark = cctnsRemark;
+
+      if (isReverifying) {
+        finalVerificationStatus = 'pending_admin_reverify';
+        finalIsVerified = false; // Blocked until admin manual check
+        finalCctnsRemark = 'Pending admin manual verification review';
+      }
+
       const verifyData = {
         name: editName,
         age: editAge,
         place: editPlace,
         aadhaarNumber: aadhaarNo,
+        aadhaarCardPic: aadhaarCardPic || '',
         profilePic: capturedSelfie,
-        isVerified: isVerified,
+        isVerified: finalIsVerified,
         isExpired: false,
         lastVerifiedAt: new Date().toISOString(),
-        verificationStatus: verificationStatus,
-        cctnsRemark: cctnsRemark
+        verificationStatus: finalVerificationStatus,
+        cctnsRemark: finalCctnsRemark
       };
       await updateDoc(userDocRef, verifyData);
       setUserData(prev => ({ ...prev, ...verifyData }));
@@ -262,11 +379,14 @@ const WorkerDashboard = () => {
       setVerifyStep(1);
       setAadhaarNo('');
       setCapturedSelfie(null);
+      setAadhaarCardPic(null);
 
       // 3. Show appropriate alert based on the status
-      if (verificationStatus === 'blocked') {
+      if (isReverifying) {
+        alert("Re-verification submitted. Your account will remain locked until the Administrator reviews and approves your Aadhaar card and Selfie.");
+      } else if (finalVerificationStatus === 'blocked') {
         alert("Verification completed. CCTNS Background Check: BLOCKED (Criminal Record Found)");
-      } else if (verificationStatus === 'on_review') {
+      } else if (finalVerificationStatus === 'on_review') {
         alert("Verification completed. CCTNS Background Check: UNDER POLICE REVIEW (FIR Record Found)");
       } else {
         alert(t('verification_complete_msg'));
@@ -619,9 +739,18 @@ const WorkerDashboard = () => {
           <>
             {userData?.verificationStatus && (
               <div style={{
-                background: userData.verificationStatus === 'blocked' ? 'rgba(255, 76, 76, 0.1)' : userData.verificationStatus === 'on_review' ? 'rgba(255, 152, 0, 0.1)' : 'rgba(0, 230, 118, 0.1)',
-                border: userData.verificationStatus === 'blocked' ? '1px solid rgba(255, 76, 76, 0.4)' : userData.verificationStatus === 'on_review' ? '1px solid rgba(255, 152, 0, 0.4)' : '1px solid rgba(0, 230, 118, 0.4)',
-                color: userData.verificationStatus === 'blocked' ? '#ff4c4c' : userData.verificationStatus === 'on_review' ? '#ff9800' : '#00e676',
+                background: 
+                  userData.verificationStatus === 'blocked' || (userData.verificationStatus === 'reverification_required' && isDeadlinePassed) ? 'rgba(255, 76, 76, 0.1)' : 
+                  userData.verificationStatus === 'on_review' || userData.verificationStatus === 'reverification_required' ? 'rgba(255, 152, 0, 0.1)' : 
+                  userData.verificationStatus === 'pending_admin_reverify' ? 'rgba(33, 150, 243, 0.1)' : 'rgba(0, 230, 118, 0.1)',
+                border: 
+                  userData.verificationStatus === 'blocked' || (userData.verificationStatus === 'reverification_required' && isDeadlinePassed) ? '1px solid rgba(255, 76, 76, 0.4)' : 
+                  userData.verificationStatus === 'on_review' || userData.verificationStatus === 'reverification_required' ? '1px solid rgba(255, 152, 0, 0.4)' : 
+                  userData.verificationStatus === 'pending_admin_reverify' ? '1px solid rgba(33, 150, 243, 0.4)' : '1px solid rgba(0, 230, 118, 0.4)',
+                color: 
+                  userData.verificationStatus === 'blocked' || (userData.verificationStatus === 'reverification_required' && isDeadlinePassed) ? '#ff4c4c' : 
+                  userData.verificationStatus === 'on_review' || userData.verificationStatus === 'reverification_required' ? '#ff9800' : 
+                  userData.verificationStatus === 'pending_admin_reverify' ? '#2196f3' : '#00e676',
                 padding: '10px 15px',
                 borderRadius: '10px',
                 marginBottom: '15px',
@@ -635,6 +764,12 @@ const WorkerDashboard = () => {
                 {userData.verificationStatus === 'blocked' && `🚨 CCTNS BLOCKED: ${userData.cctnsRemark || 'Criminal Record Detected'}`}
                 {userData.verificationStatus === 'on_review' && `⚠ CCTNS ON REVIEW: ${userData.cctnsRemark || 'Active FIR Pending Review'}`}
                 {userData.verificationStatus === 'verified' && `✓ CCTNS VERIFIED: ${userData.cctnsRemark || 'No Criminal Records Found'}`}
+                {userData.verificationStatus === 'reverification_required' && (
+                  isDeadlinePassed ? 
+                    `🚨 VERIFICATION DEADLINE EXPIRED: Your account has been locked. Please contact administration.` : 
+                    `⚠️ POOR QUALITY FLAG: Re-verification required. Time remaining: ${timeLeftStr}`
+                )}
+                {userData.verificationStatus === 'pending_admin_reverify' && `⏳ AWAITING MANUAL REVIEW: Your new verification details are pending Admin approval.`}
               </div>
             )}
 
@@ -745,10 +880,16 @@ const WorkerDashboard = () => {
                 }}>
                   <span style={{ fontSize: '2rem' }}>🔒</span>
                   <span style={{ fontSize: '0.85rem', fontWeight: 'bold', lineHeight: '1.4' }}>
-                    {isExpired ? 'VERIFICATION EXPIRED' : 'QR CODE LOCKED'}
+                    {isExpired ? 'VERIFICATION EXPIRED' : 
+                     userData?.verificationStatus === 'reverification_required' ? 'RE-VERIFICATION REQUIRED' : 
+                     userData?.verificationStatus === 'pending_admin_reverify' ? 'PENDING MANUAL REVIEW' : 
+                     'QR CODE LOCKED'}
                   </span>
                   <p style={{ fontSize: '0.75rem', color: '#666', margin: 0 }}>
-                    {isExpired ? 'Verification is required every 6 months.' : 'Complete Aadhaar & Selfie verification to unlock.'}
+                    {isExpired ? 'Verification is required every 6 months.' : 
+                     userData?.verificationStatus === 'reverification_required' ? 'Submit correct details before the 24h deadline.' : 
+                     userData?.verificationStatus === 'pending_admin_reverify' ? 'Please wait for the Admin to review.' : 
+                     'Complete Aadhaar & Selfie verification to unlock.'}
                   </p>
                 </div>
               )}
@@ -757,14 +898,43 @@ const WorkerDashboard = () => {
             {/* Verification Button if Unverified or Expired */}
             {!userData?.isVerified && (
               <button
-                onClick={() => setShowVerifyModal(true)}
+                onClick={() => {
+                  if (userData?.verificationStatus === 'pending_admin_reverify') return;
+                  if (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) {
+                    alert("Your 24-hour verification window has expired. Please contact administration.");
+                    return;
+                  }
+                  setShowVerifyModal(true);
+                }}
+                disabled={
+                  userData?.verificationStatus === 'pending_admin_reverify' ||
+                  (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed)
+                }
                 style={{
                   width: '100%', padding: '14px', fontSize: '1.1rem', fontWeight: 'bold', color: '#fff',
-                  backgroundColor: '#e141ec', border: 'none', borderRadius: '10px', cursor: 'pointer',
-                  marginBottom: '15px', boxShadow: '0 0 15px rgba(225, 65, 236, 0.5)', transition: 'all 0.3s ease'
+                  backgroundColor: 
+                    userData?.verificationStatus === 'pending_admin_reverify' ? 'rgba(33, 150, 243, 0.3)' :
+                    (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) ? 'rgba(255, 76, 76, 0.3)' :
+                    '#e141ec', 
+                  border: 
+                    userData?.verificationStatus === 'pending_admin_reverify' ? '1px solid rgba(33, 150, 243, 0.5)' :
+                    (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) ? '1px solid rgba(255, 76, 76, 0.5)' :
+                    'none',
+                  borderRadius: '10px', 
+                  cursor: 
+                    (userData?.verificationStatus === 'pending_admin_reverify' || (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed)) 
+                      ? 'not-allowed' : 'pointer',
+                  marginBottom: '15px', 
+                  boxShadow: 
+                    (userData?.verificationStatus === 'pending_admin_reverify' || (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed))
+                      ? 'none' : '0 0 15px rgba(225, 65, 236, 0.5)', 
+                  transition: 'all 0.3s ease'
                 }}
               >
-                {isExpired ? 'RE-VERIFY PROFILE' : 'VERIFY TO UNLOCK QR'}
+                {userData?.verificationStatus === 'pending_admin_reverify' ? 'AWAITING ADMIN APPROVAL' :
+                 (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) ? 'DEADLINE EXPIRED' :
+                 userData?.verificationStatus === 'reverification_required' ? 'RE-VERIFY NOW' :
+                 isExpired ? 'RE-VERIFY PROFILE' : 'VERIFY TO UNLOCK QR'}
               </button>
             )}
 
@@ -1073,10 +1243,66 @@ const WorkerDashboard = () => {
                   />
                 </div>
 
+                <div style={{ marginBottom: '15px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Photo</label>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setAadhaarCardPic(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ display: 'none' }}
+                      id="aadhaar-file-input"
+                    />
+                    <label 
+                      htmlFor="aadhaar-file-input"
+                      style={{
+                        flex: 1, padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px dashed rgba(225, 65, 236, 0.4)', color: '#e141ec', textAlign: 'center',
+                        cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s'
+                      }}
+                    >
+                      📁 Upload Photo
+                    </label>
+                    <button
+                      type="button"
+                      onClick={simulateAadhaarCard}
+                      disabled={!editName || aadhaarNo.length !== 12}
+                      style={{
+                        padding: '10px 15px', borderRadius: '8px', background: 'rgba(225, 65, 236, 0.15)',
+                        border: '1px solid rgba(225, 65, 236, 0.3)', color: '#e141ec', fontWeight: 'bold',
+                        fontSize: '0.85rem', cursor: (!editName || aadhaarNo.length !== 12) ? 'not-allowed' : 'pointer',
+                        opacity: (!editName || aadhaarNo.length !== 12) ? 0.5 : 1
+                      }}
+                    >
+                      ⚙️ Simulate Card
+                    </button>
+                  </div>
+                  {aadhaarCardPic && (
+                    <div style={{ position: 'relative', width: '100%', height: '120px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+                      <img src={aadhaarCardPic} alt="Aadhaar Card Preview" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+                      <button 
+                        onClick={() => setAadhaarCardPic(null)}
+                        style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '0.8rem' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <button 
                   onClick={() => {
-                    if (!editName || !editAge || !editPlace || !aadhaarNo) {
-                      alert("Please fill out all fields first.");
+                    if (!editName || !editAge || !editPlace || !aadhaarNo || !aadhaarCardPic) {
+                      alert("Please fill out all fields and provide an Aadhaar card photo.");
                       return;
                     }
                     if (aadhaarNo.length !== 12) {

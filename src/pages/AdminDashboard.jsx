@@ -166,31 +166,62 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleResetVerification = async (report) => {
+  const handleRequestReverify = async (report) => {
     try {
-      const confirmAction = window.confirm(`Are you sure you want to reset verification for ${report.workerName}? This will lock their QR code and clear their profile photo.`);
+      const confirmAction = window.confirm(`Request re-verification for ${report.workerName}? They will have a 24-hour window to complete a new selfie and Aadhaar card upload.`);
+      if (!confirmAction) return;
+
+      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const workerRef = doc(db, 'users', report.workerId);
+      await updateDoc(workerRef, {
+        isVerified: false,
+        verificationStatus: 'reverification_required',
+        reverifyDeadline: deadline,
+        cctnsRemark: 'Flagged for selfie mismatch. Re-verification required within 24 hours.'
+      });
+
+      alert("Re-verification requested successfully. Worker has 24 hours to re-submit.");
+      await fetchData();
+    } catch (err) {
+      console.error("Error requesting re-verification:", err);
+      alert("Failed to request re-verification.");
+    }
+  };
+
+  const handleVerifyMatch = async (report) => {
+    try {
+      const confirmAction = window.confirm(`Approve verification and clear mismatch report for ${report.workerName}?`);
       if (!confirmAction) return;
 
       const workerRef = doc(db, 'users', report.workerId);
       await updateDoc(workerRef, {
-        isVerified: false,
-        profilePic: '',
-        aadhaarNumber: '',
-        lastVerifiedAt: ''
+        isVerified: true,
+        isSuspended: false,
+        verificationStatus: 'verified',
+        cctnsRemark: 'Cleared by Admin manual review.'
       });
 
       const reportRef = doc(db, 'mismatchReports', report.id);
       await updateDoc(reportRef, {
         status: 'resolved',
-        actionTaken: 'reset_verification'
+        actionTaken: 'verified'
       });
 
-      await logAction('RESET_VERIFICATION', { id: report.workerId, name: report.workerName });
-      alert("Worker verification reset successfully.");
+      if (report.reportedByUid) {
+        const notifRef = collection(db, 'users', report.reportedByUid, 'systemNotifications');
+        await addDoc(notifRef, {
+          title: 'Worker Verification Cleared',
+          message: `Worker ${report.workerName} has been manually reviewed and verified by Admin following your mismatch report. They are now cleared for work.`,
+          timestamp: serverTimestamp()
+        });
+      }
+
+      await logAction('MANUALLY_VERIFIED', { id: report.workerId, name: report.workerName });
+      alert("Worker approved and mismatch resolved. Hirer notified.");
       await fetchData();
     } catch (err) {
-      console.error("Error resetting verification:", err);
-      alert("Failed to reset verification.");
+      console.error("Error verifying worker match:", err);
+      alert("Failed to verify worker.");
     }
   };
 
@@ -202,7 +233,9 @@ const AdminDashboard = () => {
       const workerRef = doc(db, 'users', report.workerId);
       await updateDoc(workerRef, {
         isSuspended: true,
-        status: 'suspended'
+        status: 'suspended',
+        verificationStatus: 'blocked',
+        cctnsRemark: 'Suspended by admin following selfie mismatch review.'
       });
 
       const reportRef = doc(db, 'mismatchReports', report.id);
@@ -373,93 +406,161 @@ const AdminDashboard = () => {
                 <div style={{ color: '#aaa', fontStyle: 'italic', padding: '10px' }}>No profile mismatch reports recorded.</div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
-                  {reportsList.map(report => (
-                    <div key={report.id} style={{
-                      background: 'rgba(0, 0, 0, 0.3)',
-                      border: `1px solid ${report.status === 'pending' ? 'rgba(255, 76, 76, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                        {/* Worker Verified Selfie Display */}
-                        <div style={{
-                          width: '70px', height: '70px', borderRadius: '50%', overflow: 'hidden',
-                          border: '2px solid #ff4c4c', background: 'rgba(255,255,255,0.05)'
-                        }}>
-                          {report.workerPhoto ? (
-                            <img src={report.workerPhoto} alt="Worker Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {reportsList.map(report => {
+                    const workerDoc = usersList.find(u => u.id === report.workerId);
+                    const currentStatus = workerDoc?.verificationStatus || '';
+                    const currentSelfie = workerDoc?.profilePic || report.workerPhoto || '';
+                    const currentAadhaarPic = workerDoc?.aadhaarCardPic || report.workerAadhaarCardPic || '';
+                    const currentAadhaarNo = workerDoc?.aadhaarNumber || report.workerAadhaarNumber || '';
+
+                    return (
+                      <div key={report.id} style={{
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        border: `1px solid ${report.status === 'pending' ? 'rgba(255, 76, 76, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+                        borderRadius: '12px',
+                        padding: '20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                      }}>
+                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{report.workerName}</h4>
+                            <span style={{ fontSize: '0.8rem', color: '#aaa' }}>{report.workerEmail}</span>
+                            <div style={{ marginTop: '5px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold',
+                                background: report.status === 'pending' ? 'rgba(255, 76, 76, 0.2)' : 'rgba(0, 230, 118, 0.2)',
+                                color: report.status === 'pending' ? '#ff4c4c' : '#00e676'
+                              }}>
+                                {report.status === 'pending' ? 'Pending Action' : 'Resolved'}
+                              </span>
+                              {report.status === 'pending' && currentStatus === 'pending_admin_reverify' && (
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold',
+                                  background: 'rgba(33, 150, 243, 0.2)', color: '#2196f3'
+                                }}>
+                                  🔄 Re-verify Submitted
+                                </span>
+                              )}
+                              {report.status === 'pending' && currentStatus === 'reverification_required' && (
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold',
+                                  background: 'rgba(255, 152, 0, 0.2)', color: '#ff9800'
+                                }}>
+                                  ⏳ Reverification Pending
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Side-by-Side Photo Comparison */}
+                        <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', margin: '10px 0', background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                            <span style={{ fontSize: '0.7rem', color: '#888', marginBottom: '5px', fontWeight: 'bold', letterSpacing: '0.5px' }}>SELFIE PHOTO</span>
+                            <div style={{
+                              width: '85px', height: '85px', borderRadius: '8px', overflow: 'hidden',
+                              border: '2px solid #e141ec', background: 'rgba(255,255,255,0.05)'
+                            }}>
+                              {currentSelfie ? (
+                                <img src={currentSelfie} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                <div style={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem' }}>👤</div>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                            <span style={{ fontSize: '0.7rem', color: '#888', marginBottom: '5px', fontWeight: 'bold', letterSpacing: '0.5px' }}>AADHAAR CARD</span>
+                            <div style={{
+                              width: '85px', height: '85px', borderRadius: '8px', overflow: 'hidden',
+                              border: '2px solid #00e676', background: 'rgba(255,255,255,0.05)'
+                            }}>
+                              {currentAadhaarPic ? (
+                                <img src={currentAadhaarPic} alt="Aadhaar" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+                              ) : (
+                                <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#666', padding: '5px', boxSizing: 'border-box' }}>
+                                  <span style={{ fontSize: '1.2rem' }}>💳</span>
+                                  <span style={{ fontSize: '0.65rem' }}>No Photo</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', fontSize: '0.85rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ color: '#888' }}>Aadhaar No:</span>
+                            <span style={{ color: '#fff', fontWeight: 'bold' }}>{currentAadhaarNo ? `xxxx-xxxx-${currentAadhaarNo.slice(-4)}` : 'N/A'}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ color: '#888' }}>Reported by:</span>
+                            <span style={{ color: '#fff', fontWeight: '500' }}>{report.reportedByName}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <span style={{ color: '#888' }}>Hirer email:</span>
+                            <span style={{ color: '#aaa' }}>{report.reportedByEmail}</span>
+                          </div>
+                          <div style={{ background: 'rgba(255, 76, 76, 0.05)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255, 76, 76, 0.15)', color: '#ffb3b3', fontStyle: 'italic' }}>
+                            "{report.comment}"
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '8px', textAlign: 'right' }}>
+                            {report.timestamp?.toDate ? report.timestamp.toDate().toLocaleString() : new Date(report.timestamp || 0).toLocaleString()}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px', marginTop: 'auto' }}>
+                          {report.status === 'pending' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button 
+                                  onClick={() => handleRequestReverify(report)}
+                                  disabled={currentStatus === 'reverification_required'}
+                                  style={{ 
+                                    flex: 1, padding: '8px', 
+                                    background: currentStatus === 'reverification_required' ? 'rgba(255, 160, 0, 0.3)' : '#ffa000', 
+                                    color: currentStatus === 'reverification_required' ? '#666' : '#000', 
+                                    border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.75rem', 
+                                    cursor: currentStatus === 'reverification_required' ? 'not-allowed' : 'pointer' 
+                                  }}
+                                  title="Ask worker for reverification within 24h"
+                                >
+                                  Re-verify 24h
+                                </button>
+                                <button 
+                                  onClick={() => handleSuspendWorker(report)}
+                                  style={{ flex: 1, padding: '8px', background: '#ff4c4c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer' }}
+                                  title="Permanently block this worker"
+                                >
+                                  Confirm Block
+                                </button>
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button 
+                                  onClick={() => handleVerifyMatch(report)}
+                                  style={{ flex: 1, padding: '8px', background: '#00e676', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer' }}
+                                  title="Verify worker is correct and notify Hirer"
+                                >
+                                  Verify & Clear
+                                </button>
+                                <button 
+                                  onClick={() => handleDismissReport(report)}
+                                  style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#ccc', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Dismiss Report
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                            <div style={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '2rem' }}>👤</div>
+                            <div style={{ textAlign: 'center', fontSize: '0.85rem', color: '#00e676', fontWeight: 'bold', padding: '6px 0', background: 'rgba(0, 230, 118, 0.05)', borderRadius: '6px' }}>
+                              ✓ Resolved ({report.actionTaken?.replace('_', ' ').toUpperCase()})
+                            </div>
                           )}
                         </div>
-                        <div style={{ flex: 1 }}>
-                          <h4 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{report.workerName}</h4>
-                          <span style={{ fontSize: '0.8rem', color: '#aaa' }}>{report.workerEmail}</span>
-                          <div style={{ marginTop: '5px' }}>
-                            <span style={{
-                              padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold',
-                              background: report.status === 'pending' ? 'rgba(255, 76, 76, 0.2)' : 'rgba(0, 230, 118, 0.2)',
-                              color: report.status === 'pending' ? '#ff4c4c' : '#00e676'
-                            }}>
-                              {report.status === 'pending' ? 'Pending Action' : 'Resolved'}
-                            </span>
-                          </div>
-                        </div>
                       </div>
-
-                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', fontSize: '0.85rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span style={{ color: '#888' }}>Reported by:</span>
-                          <span style={{ color: '#fff', fontWeight: '500' }}>{report.reportedByName}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <span style={{ color: '#888' }}>Hirer email:</span>
-                          <span style={{ color: '#aaa' }}>{report.reportedByEmail}</span>
-                        </div>
-                        <div style={{ background: 'rgba(255, 76, 76, 0.05)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255, 76, 76, 0.15)', color: '#ffb3b3', fontStyle: 'italic' }}>
-                          "{report.comment}"
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '8px', textAlign: 'right' }}>
-                          {report.timestamp?.toDate ? report.timestamp.toDate().toLocaleString() : new Date(report.timestamp || 0).toLocaleString()}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px', marginTop: 'auto' }}>
-                        {report.status === 'pending' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button 
-                                onClick={() => handleResetVerification(report)}
-                                style={{ flex: 1, padding: '8px', background: '#ffa000', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
-                              >
-                                Reset Verify
-                              </button>
-                              <button 
-                                onClick={() => handleSuspendWorker(report)}
-                                style={{ flex: 1, padding: '8px', background: '#ff4c4c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
-                              >
-                                Suspend
-                              </button>
-                            </div>
-                            <button 
-                              onClick={() => handleDismissReport(report)}
-                              style={{ width: '100%', padding: '8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#ccc', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
-                            >
-                              Dismiss Report
-                            </button>
-                          </div>
-                        ) : (
-                          <div style={{ textAlign: 'center', fontSize: '0.85rem', color: '#00e676', fontWeight: 'bold', padding: '6px 0', background: 'rgba(0, 230, 118, 0.05)', borderRadius: '6px' }}>
-                            ✓ Resolved ({report.actionTaken?.replace('_', ' ').toUpperCase()})
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
