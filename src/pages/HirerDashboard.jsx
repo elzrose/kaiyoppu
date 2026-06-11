@@ -66,7 +66,7 @@ const HirerDashboard = () => {
     if (showScanModal && scanMode === 'camera') {
       const startScanner = async () => {
         try {
-          await new Promise(resolve => setTimeout(resolve, 350));
+          await new Promise(resolve => setTimeout(resolve, 450));
           if (!isActive) return;
 
           const qrReaderEl = document.getElementById("qr-reader");
@@ -80,7 +80,7 @@ const HirerDashboard = () => {
             fps: 10,
             qrbox: (width, height) => {
               const minEdge = Math.min(width, height);
-              const qrboxSize = Math.floor(minEdge * 0.7);
+              const qrboxSize = Math.floor(minEdge * 0.65);
               return {
                 width: qrboxSize,
                 height: qrboxSize
@@ -182,6 +182,11 @@ const HirerDashboard = () => {
             } catch (stopErr) {
               console.error("Failed to stop scanner in cleanup:", stopErr);
             }
+          }
+          try {
+            html5QrcodeInstance.clear();
+          } catch (clearErr) {
+            // ignore
           }
         };
         stopScanner();
