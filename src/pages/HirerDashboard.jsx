@@ -368,6 +368,24 @@ const HirerDashboard = () => {
     await performVerify(scanUid);
   };
 
+  const handleFileUploadScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setIsScanning(true);
+    setScanError('');
+    try {
+      const html5Qrcode = new Html5Qrcode("qr-reader-dummy");
+      const decodedText = await html5Qrcode.scanFile(file, false);
+      html5Qrcode.clear();
+      await performVerify(decodedText);
+    } catch (err) {
+      console.error("File QR scan error:", err);
+      setScanError("❌ No QR code detected in this image. Try taking a clearer close-up photo.");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   const handleReportMismatch = async () => {
     if (!scanResult) return;
     setIsReportingMismatch(true);
@@ -1140,8 +1158,7 @@ const HirerDashboard = () => {
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0, 0, 0, 0.8)',
-          backdropFilter: 'blur(8px)',
+          background: 'rgba(10, 10, 20, 0.96)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'flex-start',
@@ -1149,6 +1166,9 @@ const HirerDashboard = () => {
           overflowY: 'auto',
           zIndex: 100
         }}>
+          {/* Dummy hidden element required by html5-qrcode for file based scans */}
+          <div id="qr-reader-dummy" style={{ display: 'none' }}></div>
+
           <div style={{
             background: 'linear-gradient(135deg, rgba(36, 36, 62, 0.95) 0%, rgba(15, 12, 41, 0.95) 100%)',
             border: '1px solid rgba(225, 65, 236, 0.5)',
@@ -1180,7 +1200,7 @@ const HirerDashboard = () => {
             {!scanResult ? (
               <>
                 <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center' }}>
-                  {scanMode === 'camera' ? 'Scan Worker QR' : 'Enter Worker UID'}
+                  {scanMode === 'camera' ? 'Scan Worker QR' : scanMode === 'upload' ? 'Upload QR Image' : 'Enter Worker UID'}
                 </h2>
 
                 <div style={{
@@ -1189,7 +1209,8 @@ const HirerDashboard = () => {
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                   borderRadius: '8px',
                   padding: '4px',
-                  marginBottom: '20px'
+                  marginBottom: '20px',
+                  gap: '4px'
                 }}>
                   <button
                     onClick={() => {
@@ -1202,14 +1223,35 @@ const HirerDashboard = () => {
                       color: scanMode === 'camera' ? '#fff' : '#a0a0a0',
                       border: 'none',
                       borderRadius: '6px',
-                      padding: '8px 12px',
-                      fontSize: '0.85rem',
+                      padding: '8px 4px',
+                      fontSize: '0.8rem',
                       fontWeight: 'bold',
                       cursor: 'pointer',
                       transition: 'all 0.3s ease'
                     }}
                   >
-                    📷 Camera Scan
+                    📷 Camera
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await stopScanning();
+                      setScanMode('upload');
+                      setScanError('');
+                    }}
+                    style={{
+                      flex: 1,
+                      background: scanMode === 'upload' ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+                      color: scanMode === 'upload' ? '#fff' : '#a0a0a0',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 4px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    📁 Upload QR
                   </button>
                   <button
                     onClick={async () => {
@@ -1223,8 +1265,8 @@ const HirerDashboard = () => {
                       color: scanMode === 'text' ? '#fff' : '#a0a0a0',
                       border: 'none',
                       borderRadius: '6px',
-                      padding: '8px 12px',
-                      fontSize: '0.85rem',
+                      padding: '8px 4px',
+                      fontSize: '0.8rem',
                       fontWeight: 'bold',
                       cursor: 'pointer',
                       transition: 'all 0.3s ease'
@@ -1258,6 +1300,47 @@ const HirerDashboard = () => {
                     <span style={{ fontSize: '0.8rem', color: '#b0b0b0', textAlign: 'center' }}>
                       Align the Worker's QR code within the frame to scan.
                     </span>
+                  </div>
+                )}
+
+                {scanMode === 'upload' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center' }}>
+                    <div style={{
+                      width: '100%',
+                      padding: '30px 20px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px dashed rgba(225, 65, 236, 0.4)',
+                      borderRadius: '12px',
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
+                    }}>
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        id="qr-file-input"
+                        onChange={handleFileUploadScan}
+                        style={{ display: 'none' }}
+                      />
+                      <label 
+                        htmlFor="qr-file-input"
+                        style={{
+                          display: 'inline-block',
+                          padding: '12px 24px',
+                          background: '#e141ec',
+                          color: '#fff',
+                          borderRadius: '8px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          boxShadow: '0 0 15px rgba(225, 65, 236, 0.3)',
+                          transition: 'all 0.3s ease'
+                        }}
+                      >
+                        Select QR Image / Take Photo
+                      </label>
+                      <p style={{ margin: '15px 0 0 0', fontSize: '0.8rem', color: '#b0b0b0' }}>
+                        Supports uploading screenshots or taking direct photos of QR codes.
+                      </p>
+                    </div>
                   </div>
                 )}
 
