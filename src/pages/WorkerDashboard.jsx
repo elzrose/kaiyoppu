@@ -1343,6 +1343,12 @@ const WorkerDashboard = () => {
                 }}>
                   {!capturedSelfie ? (
                     <>
+                      {!window.isSecureContext && (
+                        <div style={{ position: 'absolute', padding: '15px', textAlign: 'center', fontSize: '0.72rem', color: '#ffb74d', background: 'rgba(10, 10, 20, 0.96)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', boxSizing: 'border-box', zIndex: 10 }}>
+                          <span>⚠️ HTTPS required for camera access on mobile.</span>
+                          <span style={{ fontSize: '0.65rem', marginTop: '8px', color: '#ccc' }}>Use the <strong>Simulate Selfie (Mock)</strong> option below.</span>
+                        </div>
+                      )}
                       <video 
                         ref={videoRef} 
                         autoPlay 

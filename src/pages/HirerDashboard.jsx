@@ -54,7 +54,7 @@ const HirerDashboard = () => {
   const [systemNotifications, setSystemNotifications] = useState([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
 
-  const [scanMode, setScanMode] = useState('camera'); // 'camera' | 'text'
+  const [scanMode, setScanMode] = useState('text'); // 'camera' | 'upload' | 'text'
   const [isCameraActive, setIsCameraActive] = useState(false);
   const qrCodeScannerRef = useRef(null);
 
@@ -1303,6 +1303,22 @@ const HirerDashboard = () => {
 
                 {scanMode === 'camera' && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                    {!window.isSecureContext && (
+                      <div style={{
+                        padding: '12px 15px',
+                        background: 'rgba(255, 152, 0, 0.15)',
+                        border: '1px solid rgba(255, 152, 0, 0.4)',
+                        borderRadius: '8px',
+                        color: '#ffb74d',
+                        fontSize: '0.82rem',
+                        textAlign: 'center',
+                        lineHeight: '1.4',
+                        maxWidth: '320px',
+                        boxSizing: 'border-box'
+                      }}>
+                        ⚠️ Mobile cameras require a secure connection (HTTPS). Please switch to the <strong>Type UID</strong> or <strong>Upload QR</strong> tab.
+                      </div>
+                    )}
                     <div 
                       id="qr-reader" 
                       style={{ 
