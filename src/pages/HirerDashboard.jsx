@@ -59,38 +59,93 @@ const HirerDashboard = () => {
   const qrCodeScannerRef = useRef(null);
 
   useEffect(() => {
+    let isActive = true;
+    let html5QrcodeInstance = null;
+
     if (showScanModal && scanMode === 'camera') {
       const startScanner = async () => {
         try {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 350));
+          if (!isActive) return;
+
           const qrReaderEl = document.getElementById("qr-reader");
           if (!qrReaderEl) return;
 
           const html5Qrcode = new Html5Qrcode("qr-reader");
+          html5QrcodeInstance = html5Qrcode;
           qrCodeScannerRef.current = html5Qrcode;
 
-          await html5Qrcode.start(
-            { facingMode: "environment" },
-            {
-              fps: 10,
-              qrbox: { width: 220, height: 220 }
-            },
-            async (decodedText) => {
-              setScanUid(decodedText);
-              await html5Qrcode.stop();
-              setIsCameraActive(false);
-              await performVerify(decodedText);
-            },
-            (errorMessage) => {
-              // ignore constant check frames
+          const startConfig = {
+            fps: 10,
+            qrbox: (width, height) => {
+              const minEdge = Math.min(width, height);
+              const qrboxSize = Math.floor(minEdge * 0.7);
+              return {
+                width: qrboxSize,
+                height: qrboxSize
+              };
             }
-          );
-          setIsCameraActive(true);
-          setScanError('');
+          };
+
+          const successCallback = async (decodedText) => {
+            setScanUid(decodedText);
+            if (html5Qrcode.isScanning) {
+              await html5Qrcode.stop();
+            }
+            setIsCameraActive(false);
+            await performVerify(decodedText);
+          };
+
+          try {
+            // First attempt: Rear camera
+            await html5Qrcode.start(
+              { facingMode: "environment" },
+              startConfig,
+              successCallback,
+              () => {}
+            );
+            if (isActive) {
+              setIsCameraActive(true);
+              setScanError('');
+            } else {
+              if (html5Qrcode.isScanning) {
+                await html5Qrcode.stop();
+              }
+            }
+          } catch (firstErr) {
+            console.warn("First QR scanner attempt failed, trying fallback:", firstErr);
+            if (!isActive) return;
+
+            try {
+              // Second attempt: Fallback to user/front camera or any default
+              await html5Qrcode.start(
+                { facingMode: "user" },
+                startConfig,
+                successCallback,
+                () => {}
+              );
+              if (isActive) {
+                setIsCameraActive(true);
+                setScanError('');
+              } else {
+                if (html5Qrcode.isScanning) {
+                  await html5Qrcode.stop();
+                }
+              }
+            } catch (secondErr) {
+              console.error("All QR camera attempts failed:", secondErr);
+              if (isActive) {
+                setScanError("Failed to access camera. Please verify permissions or type the UID manually.");
+                setIsCameraActive(false);
+              }
+            }
+          }
         } catch (err) {
           console.error("Failed to start QR camera:", err);
-          setScanError("Failed to access camera. Please verify permissions or type the UID manually.");
-          setIsCameraActive(false);
+          if (isActive) {
+            setScanError("Failed to access camera. Please verify permissions or type the UID manually.");
+            setIsCameraActive(false);
+          }
         }
       };
 
@@ -98,17 +153,19 @@ const HirerDashboard = () => {
     }
 
     return () => {
-      const stopScanner = async () => {
-        if (qrCodeScannerRef.current && qrCodeScannerRef.current.isScanning) {
-          try {
-            await qrCodeScannerRef.current.stop();
-          } catch (stopErr) {
-            console.error("Failed to stop scanner in cleanup:", stopErr);
+      isActive = false;
+      if (html5QrcodeInstance) {
+        const stopScanner = async () => {
+          if (html5QrcodeInstance.isScanning) {
+            try {
+              await html5QrcodeInstance.stop();
+            } catch (stopErr) {
+              console.error("Failed to stop scanner in cleanup:", stopErr);
+            }
           }
-          setIsCameraActive(false);
-        }
-      };
-      stopScanner();
+        };
+        stopScanner();
+      }
     };
   }, [showScanModal, scanMode]);
   const [invitedWorkers, setInvitedWorkers] = useState([]);

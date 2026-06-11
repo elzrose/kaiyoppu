@@ -190,3 +190,25 @@ body {
     display: block !important;
   }
 }
+
+/* --- QR Scanner Styles --- */
+#qr-reader {
+  position: relative;
+  overflow: hidden;
+}
+
+#qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
+
+#qr-reader img {
+  display: none !important; /* hide default html5-qrcode static icons if any */
+}
+
+/* Ensure no scrollbars inside reader */
+#qr-reader::-webkit-scrollbar {
+  display: none;
+}
