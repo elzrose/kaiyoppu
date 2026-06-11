@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc, collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const HirerDashboard = () => {
   const { t } = useTranslation();
@@ -52,6 +53,64 @@ const HirerDashboard = () => {
   const [sentNotifs, setSentNotifs] = useState([]);
   const [systemNotifications, setSystemNotifications] = useState([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+
+  const [scanMode, setScanMode] = useState('camera'); // 'camera' | 'text'
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const qrCodeScannerRef = useRef(null);
+
+  useEffect(() => {
+    if (showScanModal && scanMode === 'camera') {
+      const startScanner = async () => {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 300));
+          const qrReaderEl = document.getElementById("qr-reader");
+          if (!qrReaderEl) return;
+
+          const html5Qrcode = new Html5Qrcode("qr-reader");
+          qrCodeScannerRef.current = html5Qrcode;
+
+          await html5Qrcode.start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 220, height: 220 }
+            },
+            async (decodedText) => {
+              setScanUid(decodedText);
+              await html5Qrcode.stop();
+              setIsCameraActive(false);
+              await performVerify(decodedText);
+            },
+            (errorMessage) => {
+              // ignore constant check frames
+            }
+          );
+          setIsCameraActive(true);
+          setScanError('');
+        } catch (err) {
+          console.error("Failed to start QR camera:", err);
+          setScanError("Failed to access camera. Please verify permissions or type the UID manually.");
+          setIsCameraActive(false);
+        }
+      };
+
+      startScanner();
+    }
+
+    return () => {
+      const stopScanner = async () => {
+        if (qrCodeScannerRef.current && qrCodeScannerRef.current.isScanning) {
+          try {
+            await qrCodeScannerRef.current.stop();
+          } catch (stopErr) {
+            console.error("Failed to stop scanner in cleanup:", stopErr);
+          }
+          setIsCameraActive(false);
+        }
+      };
+      stopScanner();
+    };
+  }, [showScanModal, scanMode]);
   const [invitedWorkers, setInvitedWorkers] = useState([]);
   const [blockedWorkers, setBlockedWorkers] = useState([]);
 
@@ -173,10 +232,19 @@ const HirerDashboard = () => {
     }
   };
 
-  const handleScan = async (e) => {
-    e.preventDefault();
-    if (!scanUid.trim()) return;
+  const stopScanning = async () => {
+    if (qrCodeScannerRef.current && qrCodeScannerRef.current.isScanning) {
+      try {
+        await qrCodeScannerRef.current.stop();
+      } catch (err) {
+        console.error("Error stopping scanner:", err);
+      }
+      setIsCameraActive(false);
+    }
+  };
 
+  const performVerify = async (uid) => {
+    if (!uid) return;
     setIsScanning(true);
     setScanError('');
     setScanResult(null);
@@ -187,7 +255,7 @@ const HirerDashboard = () => {
     setIsMismatchReported(false);
 
     try {
-      const docRef = doc(db, "users", scanUid.trim());
+      const docRef = doc(db, "users", uid.trim());
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
@@ -225,6 +293,7 @@ const HirerDashboard = () => {
         }
 
         setScanResult({ id: docSnap.id, ...data, isExpiredScan: expired });
+        await stopScanning();
       } else {
         setScanError("❌ Worker not found");
       }
@@ -234,6 +303,12 @@ const HirerDashboard = () => {
     } finally {
       setIsScanning(false);
     }
+  };
+
+  const handleScan = async (e) => {
+    e.preventDefault();
+    if (!scanUid.trim()) return;
+    await performVerify(scanUid);
   };
 
   const handleReportMismatch = async () => {
@@ -1028,7 +1103,14 @@ const HirerDashboard = () => {
             position: 'relative'
           }}>
             <button
-              onClick={() => { setShowScanModal(false); setScanResult(null); setScanResultHistory([]); setScanError(''); setScanUid(''); }}
+              onClick={async () => {
+                await stopScanning();
+                setShowScanModal(false);
+                setScanResult(null);
+                setScanResultHistory([]);
+                setScanError('');
+                setScanUid('');
+              }}
               style={{
                 position: 'absolute', top: '15px', right: '15px',
                 background: 'transparent', border: 'none', color: '#fff',
@@ -1038,68 +1120,153 @@ const HirerDashboard = () => {
               ✕
             </button>
 
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center' }}>
-              Scan QR / Enter UID
-            </h2>
+            {!scanResult ? (
+              <>
+                <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center' }}>
+                  {scanMode === 'camera' ? 'Scan Worker QR' : 'Enter Worker UID'}
+                </h2>
 
-            <form onSubmit={handleScan} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <input 
-                type="text" 
-                placeholder="Worker UID"
-                value={scanUid}
-                onChange={(e) => setScanUid(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '14px 16px',
-                  background: 'rgba(0, 0, 0, 0.5)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                <div style={{
+                  display: 'flex',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   borderRadius: '8px',
-                  color: '#fff',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.3s ease'
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#e141ec'}
-                onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
-              />
+                  padding: '4px',
+                  marginBottom: '20px'
+                }}>
+                  <button
+                    onClick={() => {
+                      setScanMode('camera');
+                      setScanError('');
+                    }}
+                    style={{
+                      flex: 1,
+                      background: scanMode === 'camera' ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+                      color: scanMode === 'camera' ? '#fff' : '#a0a0a0',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '0.85rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    📷 Camera Scan
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await stopScanning();
+                      setScanMode('text');
+                      setScanError('');
+                    }}
+                    style={{
+                      flex: 1,
+                      background: scanMode === 'text' ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+                      color: scanMode === 'text' ? '#fff' : '#a0a0a0',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '0.85rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    ⌨️ Type UID
+                  </button>
+                </div>
 
-              <button 
-                type="submit"
-                disabled={isScanning || !scanUid.trim()}
-                style={{
-                  width: '100%',
-                  padding: '14px',
-                  background: '#e141ec',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                  cursor: isScanning || !scanUid.trim() ? 'not-allowed' : 'pointer',
-                  opacity: isScanning || !scanUid.trim() ? 0.7 : 1,
-                  transition: 'all 0.3s ease',
-                  boxShadow: '0 0 15px rgba(225, 65, 236, 0.3)'
-                }}
-              >
-                {isScanning ? 'Scanning...' : 'Verify Worker'}
-              </button>
-            </form>
+                {scanMode === 'camera' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                    <div 
+                      id="qr-reader" 
+                      style={{ 
+                        width: '100%', 
+                        maxWidth: '320px', 
+                        height: '240px', 
+                        borderRadius: '12px', 
+                        overflow: 'hidden', 
+                        border: '2px solid rgba(225, 65, 236, 0.3)',
+                        background: '#000',
+                        position: 'relative'
+                      }}
+                    >
+                      {!isCameraActive && !scanError && (
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#b0b0b0', fontSize: '0.9rem' }}>
+                          Starting camera...
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: '#b0b0b0', textAlign: 'center' }}>
+                      Align the Worker's QR code within the frame to scan.
+                    </span>
+                  </div>
+                )}
 
-            {scanError && (
-              <div style={{
-                marginTop: '15px',
-                padding: '15px',
-                background: 'rgba(255, 50, 50, 0.1)',
-                border: '1px solid rgba(255, 50, 50, 0.3)',
-                borderRadius: '8px',
-                color: '#ff6b6b',
-                textAlign: 'center',
-                fontWeight: '500'
-              }}>
-                {scanError}
-              </div>
-            )}
+                {scanMode === 'text' && (
+                  <form onSubmit={handleScan} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Worker UID"
+                      value={scanUid}
+                      onChange={(e) => setScanUid(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '14px 16px',
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        fontSize: '1rem',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        transition: 'border-color 0.3s ease'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#e141ec'}
+                      onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
+                    />
+
+                    <button 
+                      type="submit"
+                      disabled={isScanning || !scanUid.trim()}
+                      style={{
+                        width: '100%',
+                        padding: '14px',
+                        background: '#e141ec',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '1rem',
+                        fontWeight: 'bold',
+                        cursor: isScanning || !scanUid.trim() ? 'not-allowed' : 'pointer',
+                        opacity: isScanning || !scanUid.trim() ? 0.7 : 1,
+                        transition: 'all 0.3s ease',
+                        boxShadow: '0 0 15px rgba(225, 65, 236, 0.3)'
+                      }}
+                    >
+                      {isScanning ? 'Verifying...' : 'Verify Worker'}
+                    </button>
+                  </form>
+                )}
+
+                {scanError && (
+                  <div style={{
+                    marginTop: '15px',
+                    padding: '15px',
+                    background: 'rgba(255, 50, 50, 0.1)',
+                    border: '1px solid rgba(255, 50, 50, 0.3)',
+                    borderRadius: '8px',
+                    color: '#ff6b6b',
+                    textAlign: 'center',
+                    fontWeight: '500',
+                    fontSize: '0.9rem'
+                  }}>
+                    {scanError}
+                  </div>
+                )}
+              </>
+            ) : null}
 
             {scanResult && (
               <div style={{
