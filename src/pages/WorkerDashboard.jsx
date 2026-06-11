@@ -230,6 +230,11 @@ const WorkerDashboard = () => {
       setCameraStream(stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.setAttribute("muted", "true");
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.play().catch(e => console.warn("Selfie video play failed:", e));
       }
     } catch (err) {
       console.error("Error accessing webcam: ", err);
