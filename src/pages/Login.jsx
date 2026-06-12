@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
@@ -8,13 +8,38 @@ import './Login.css';
 
 const Login = () => {
   const { t } = useTranslation();
+  
+  // Login Method State
+  const [loginMethod, setLoginMethod] = useState('phone'); // 'phone' | 'email'
+  
+  // Phone Auth State
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  
+  // Email Auth State
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [isLoginMode, setIsLoginMode] = useState(true);
+  
   const [authError, setAuthError] = useState('');
   
   const navigate = useNavigate();
-  const { loginWithGoogle, loginWithEmail, signupWithEmail, currentUser, userRole } = useAuth();
+  const { 
+    loginWithGoogle, 
+    loginWithEmail, 
+    signupWithEmail, 
+    setupRecaptcha, 
+    sendOtp, 
+    confirmOtp, 
+    currentUser, 
+    userRole 
+  } = useAuth();
+  
+  const recaptchaVerifierRef = useRef(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -28,6 +53,67 @@ const Login = () => {
     }
   }, [currentUser, userRole, navigate]);
 
+  // Clean up reCAPTCHA verifier on unmount
+  useEffect(() => {
+    return () => {
+      if (recaptchaVerifierRef.current) {
+        try {
+          recaptchaVerifierRef.current.clear();
+        } catch (e) {}
+      }
+    };
+  }, []);
+
+  const handleSendOtp = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!phoneNumber) return;
+    
+    setSendingOtp(true);
+    try {
+      let formattedPhone = phoneNumber.trim();
+      if (!formattedPhone.startsWith('+')) {
+        formattedPhone = `+91${formattedPhone}`;
+      }
+
+      if (!recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current = setupRecaptcha('recaptcha-container');
+      }
+
+      const appVerifier = recaptchaVerifierRef.current;
+      const confirmation = await sendOtp(formattedPhone, appVerifier);
+      setConfirmationResult(confirmation);
+      setIsOtpSent(true);
+    } catch (error) {
+      console.error("SMS OTP Send failed:", error);
+      setAuthError(error.message);
+      if (recaptchaVerifierRef.current) {
+        try {
+          recaptchaVerifierRef.current.clear();
+        } catch (e) {}
+        recaptchaVerifierRef.current = null;
+      }
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!otpCode || !confirmationResult) return;
+
+    setVerifyingOtp(true);
+    try {
+      await confirmOtp(confirmationResult, otpCode.trim());
+    } catch (error) {
+      console.error("OTP Verification failed:", error);
+      setAuthError("Invalid verification code. Please check the code and try again.");
+    } finally {
+      setVerifyingOtp(false);
+    }
+  };
+
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -38,7 +124,6 @@ const Login = () => {
         } else {
           await signupWithEmail(identifier, password);
         }
-        // Redirect logic is safely handled by useEffect above tracking currentUser
       } catch (error) {
         setAuthError(error.message);
         console.error("Email auth error:", error);
@@ -53,10 +138,8 @@ const Login = () => {
   const handleGoogleSignIn = async () => {
     try {
       await loginWithGoogle();
-      // the useEffect above will redirect them automatically
     } catch (error) {
       if (error.code === 'auth/popup-closed-by-user') {
-        // Silently ignore if the user simply closes the login window
         console.log("User canceled the Google Sign In popup.");
       } else {
         console.error("Failed to sign in with Google:", error);
@@ -76,42 +159,148 @@ const Login = () => {
           <p>{t('tagline')}</p>
         </div>
         
-        <form onSubmit={handleEmailAuth} className="login-form">
-          {authError && <div style={{ color: '#ff4c4c', marginBottom: '15px', fontSize: '0.85rem', textAlign: 'center' }}>{authError}</div>}
-          <div className="input-group">
-            <input 
-              type="email" 
-              required 
-              value={identifier} 
-              onChange={(e) => setIdentifier(e.target.value)} 
-            />
-            <label>{t('email_label')}</label>
-          </div>
-          
-          <div className="input-group">
-            <input 
-              type="password" 
-              required 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <label>{t('password_label')}</label>
-          </div>
-
-          <button type="submit" className="login-btn">
-            {isLoginMode ? t('login_btn') : t('signup_btn')}
+        {/* Toggle Login Method tabs */}
+        <div style={{
+          display: 'flex',
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: '8px',
+          padding: '4px',
+          marginBottom: '25px',
+          gap: '4px'
+        }}>
+          <button
+            type="button"
+            onClick={() => {
+              setLoginMethod('phone');
+              setAuthError('');
+            }}
+            style={{
+              flex: 1,
+              background: loginMethod === 'phone' ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+              color: loginMethod === 'phone' ? '#fff' : '#a0a0a0',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '10px 12px',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+          >
+             {t('use_phone_login')}
           </button>
-          
-          <div style={{ textAlign: 'center', marginTop: '15px', fontSize: '0.9rem', color: '#b0b0b0' }}>
-            {isLoginMode ? t('no_account') : t('has_account')}
-            <span 
-              onClick={() => { setIsLoginMode(!isLoginMode); setAuthError(''); }} 
-              style={{ color: '#e141ec', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              {isLoginMode ? t('signup_btn') : t('login_btn')}
-            </span>
-          </div>
-        </form>
+          <button
+            type="button"
+            onClick={() => {
+              setLoginMethod('email');
+              setAuthError('');
+            }}
+            style={{
+              flex: 1,
+              background: loginMethod === 'email' ? 'rgba(225, 65, 236, 0.25)' : 'transparent',
+              color: loginMethod === 'email' ? '#fff' : '#a0a0a0',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '10px 12px',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+          >
+             {t('use_email_login')}
+          </button>
+        </div>
+
+        {authError && <div style={{ color: '#ff4c4c', marginBottom: '15px', fontSize: '0.85rem', textAlign: 'center' }}>{authError}</div>}
+
+        {loginMethod === 'phone' ? (
+          <form onSubmit={isOtpSent ? handleVerifyOtp : handleSendOtp} className="login-form">
+            {/* Invisible Recaptcha Container required by Firebase */}
+            <div id="recaptcha-container"></div>
+
+            <div className="input-group">
+              <input 
+                type="tel" 
+                required 
+                disabled={isOtpSent || sendingOtp}
+                value={phoneNumber} 
+                onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d+]/g, ''))} 
+                placeholder="+91 98765 43210"
+                style={{ letterSpacing: '1px' }}
+              />
+              <label className="active">{t('phone_label')}</label>
+            </div>
+
+            {isOtpSent && (
+              <div className="input-group animate-fade-in">
+                <input 
+                  type="text" 
+                  required 
+                  maxLength="6"
+                  disabled={verifyingOtp}
+                  value={otpCode} 
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))} 
+                  placeholder="123456"
+                  style={{ letterSpacing: '4px', textAlign: 'center', fontSize: '1.2rem' }}
+                />
+                <label className="active">{t('otp_label')}</label>
+              </div>
+            )}
+
+            <button type="submit" disabled={sendingOtp || verifyingOtp} className="login-btn">
+              {verifyingOtp ? 'Verifying...' : sendingOtp ? 'Sending...' : isOtpSent ? t('verify_otp') : t('send_otp')}
+            </button>
+
+            {isOtpSent && (
+              <div style={{ textAlign: 'center', marginTop: '15px', fontSize: '0.85rem' }}>
+                <span 
+                  onClick={() => { setIsOtpSent(false); setOtpCode(''); setConfirmationResult(null); }} 
+                  style={{ color: '#e141ec', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  ← Change Number
+                </span>
+              </div>
+            )}
+          </form>
+        ) : (
+          <form onSubmit={handleEmailAuth} className="login-form">
+            <div className="input-group">
+              <input 
+                type="email" 
+                required 
+                value={identifier} 
+                onChange={(e) => setIdentifier(e.target.value)} 
+              />
+              <label>{t('email_label')}</label>
+            </div>
+            
+            <div className="input-group">
+              <input 
+                type="password" 
+                required 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <label>{t('password_label')}</label>
+            </div>
+
+            <button type="submit" className="login-btn">
+              {isLoginMode ? t('login_btn') : t('signup_btn')}
+            </button>
+            
+            <div style={{ textAlign: 'center', marginTop: '15px', fontSize: '0.9rem', color: '#b0b0b0' }}>
+              {isLoginMode ? t('no_account') : t('has_account')}
+              <span 
+                onClick={() => { setIsLoginMode(!isLoginMode); setAuthError(''); }} 
+                style={{ color: '#e141ec', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                {isLoginMode ? t('signup_btn') : t('login_btn')}
+              </span>
+            </div>
+          </form>
+        )}
 
         <div className="divider">
           <span>{t('or')}</span>

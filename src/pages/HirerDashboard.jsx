@@ -61,7 +61,6 @@ const HirerDashboard = () => {
   useEffect(() => {
     let isActive = true;
     let html5QrcodeInstance = null;
-    let playInterval = null;
 
     if (showScanModal && scanMode === 'camera') {
       const startScanner = async () => {
@@ -96,22 +95,6 @@ const HirerDashboard = () => {
             setIsCameraActive(false);
             await performVerify(decodedText);
           };
-
-          // Setup an interval to actively monitor the DOM for the video element,
-          // force mute, playsinline, and try to play it. This is a bulletproof
-          // workaround for browser-level autoplay policies blocking unmuted WebRTC feeds.
-          playInterval = setInterval(() => {
-            const videoEl = qrReaderEl.querySelector("video");
-            if (videoEl) {
-              videoEl.muted = true;
-              videoEl.setAttribute("muted", "true");
-              videoEl.setAttribute("playsinline", "true");
-              videoEl.setAttribute("webkit-playsinline", "true");
-              if (videoEl.paused) {
-                videoEl.play().catch(err => console.warn("Video force play failed:", err));
-              }
-            }
-          }, 200);
 
           try {
             // First attempt: Rear camera
@@ -171,9 +154,6 @@ const HirerDashboard = () => {
 
     return () => {
       isActive = false;
-      if (playInterval) {
-        clearInterval(playInterval);
-      }
       if (html5QrcodeInstance) {
         const stopScanner = async () => {
           if (html5QrcodeInstance.isScanning) {

@@ -95,7 +95,8 @@
 }
 
 .input-group input:focus ~ label,
-.input-group input:valid ~ label {
+.input-group input:valid ~ label,
+.input-group label.active {
   top: -10px;
   left: 0;
   font-size: 0.8rem;

@@ -212,12 +212,3 @@ body {
 #qr-reader::-webkit-scrollbar {
   display: none;
 }
-
-/* Force hardware acceleration layers on all video elements to prevent black screens on iOS Safari */
-video {
-  -webkit-transform: translate3d(0, 0, 0) !important;
-  transform: translate3d(0, 0, 0) !important;
-  -webkit-backface-visibility: hidden !important;
-  backface-visibility: hidden !important;
-  isolation: isolate;
-}

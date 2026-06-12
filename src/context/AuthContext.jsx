@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db, googleProvider } from '../firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, addDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
@@ -62,6 +62,49 @@ export const AuthProvider = ({ children }) => {
       setUserRole(userDocSnap.data().role || null);
     }
     
+    return user;
+  };
+
+  const setupRecaptcha = (containerId) => {
+    if (!auth) return null;
+    return new RecaptchaVerifier(auth, containerId, {
+      size: 'invisible',
+      callback: (response) => {
+        // reCAPTCHA solved, allow signInWithPhoneNumber.
+      },
+      'expired-callback': () => {
+        // Response expired. Ask user to solve reCAPTCHA again.
+      }
+    });
+  };
+
+  const sendOtp = async (phoneNumber, appVerifier) => {
+    return await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+  };
+
+  const confirmOtp = async (confirmationResult, code) => {
+    const result = await confirmationResult.confirm(code);
+    const user = result.user;
+
+    // Check if the user document already exists in Firestore
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (!userDocSnap.exists()) {
+      // Create new user document
+      const lastFourDigits = user.phoneNumber ? user.phoneNumber.slice(-4) : 'User';
+      await setDoc(userDocRef, {
+        uid: user.uid,
+        name: `User-${lastFourDigits}`,
+        email: null,
+        phone: user.phoneNumber,
+        role: null,
+        createdAt: new Date().toISOString()
+      });
+      setUserRole(null);
+    } else {
+      setUserRole(userDocSnap.data().role || null);
+    }
     return user;
   };
 
@@ -129,6 +172,9 @@ export const AuthProvider = ({ children }) => {
     loginWithGoogle,
     signupWithEmail,
     loginWithEmail,
+    setupRecaptcha,
+    sendOtp,
+    confirmOtp,
     logout
   };
 

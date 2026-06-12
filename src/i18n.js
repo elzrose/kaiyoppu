@@ -111,7 +111,15 @@ const resources = {
       "mismatch_no": "No, mismatch",
       "mismatch_reported_msg": "Thank you. Mismatch reported to admin. Security actions will be initiated.",
       "mismatch_comment_placeholder": "Enter reason or comments...",
-      "verification_expired_warning": "Worker verification has expired. Worker must perform reverification."
+      "verification_expired_warning": "Worker verification has expired. Worker must perform reverification.",
+      "phone_label": "Mobile Number",
+      "otp_label": "OTP Verification Code",
+      "send_otp": "Send OTP",
+      "verify_otp": "Verify & Log In",
+      "phone_placeholder": "Enter 10-digit mobile number",
+      "otp_placeholder": "Enter 6-digit OTP code",
+      "use_phone_login": "Login with Phone Number",
+      "use_email_login": "Login with Email & Password"
     }
   },
   ml: {
@@ -221,7 +229,15 @@ const resources = {
       "mismatch_no": "അല്ല, പൊരുത്തപ്പെടുന്നില്ല",
       "mismatch_reported_msg": "നന്ദി. അഡ്മിന് റിപ്പോർട്ട് ചെയ്തിട്ടുണ്ട്. സുരക്ഷാ നടപടികൾ ആരംഭിക്കും.",
       "mismatch_comment_placeholder": "കാരണം അല്ലെങ്കിൽ അഭിപ്രായങ്ങൾ നൽകുക...",
-      "verification_expired_warning": "തൊഴിലാളിയുടെ പരിശോധന കാലാവധി കഴിഞ്ഞു. തൊഴിലാളി വീണ്ടും പരിശോധന നടത്തണം."
+      "verification_expired_warning": "തൊഴിലാളിയുടെ പരിശോധന കാലാവധി കഴിഞ്ഞു. തൊഴിലാളി വീണ്ടും പരിശോധന നടത്തണം.",
+      "phone_label": "മൊബൈൽ നമ്പർ",
+      "otp_label": "OTP വെരിഫിക്കേഷൻ കോഡ്",
+      "send_otp": "OTP അയക്കുക",
+      "verify_otp": "സ്ഥിരീകരിച്ച് ലോഗിൻ ചെയ്യുക",
+      "phone_placeholder": "10 അക്ക മൊബൈൽ നമ്പർ നൽകുക",
+      "otp_placeholder": "6 അക്ക OTP കോഡ് നൽകുക",
+      "use_phone_login": "മൊബൈൽ നമ്പർ ഉപയോഗിച്ച് ലോഗിൻ ചെയ്യുക",
+      "use_email_login": "ഇമെയിൽ ഉപയോഗിച്ച് ലോഗിൻ ചെയ്യുക"
     }
   },
   ta: {
@@ -331,7 +347,15 @@ const resources = {
       "mismatch_no": "இல்லை, பொருந்தவில்லை",
       "mismatch_reported_msg": "நன்றி. நிர்வாகிக்கு புகார் அளிக்கப்பட்டுள்ளது. பாதுகாப்பு நடவடிக்கைகள் எடுக்கப்படும்.",
       "mismatch_comment_placeholder": "காரணம் அல்லது கருத்துக்களை உள்ளிடவும்...",
-      "verification_expired_warning": "தொழிலாளி சரிபார்ப்பு காலாவதியானது. தொழிலாளி மீண்டும் சரிபார்க்க வேண்டும்."
+      "verification_expired_warning": "தொழிலாளி சரிபார்ப்பு காலாவதியானது. தொழிலாளி மீண்டும் சரிபார்க்க வேண்டும்.",
+      "phone_label": "கைபேசி எண்",
+      "otp_label": "OTP சரிபார்ப்பு குறியீடு",
+      "send_otp": "OTP அனுப்பவும்",
+      "verify_otp": "சரிபார்த்து உள்நுழையவும்",
+      "phone_placeholder": "10 இலக்க கைபேசி எண்ணை உள்ளிடவும்",
+      "otp_placeholder": "6 இலக்க OTP குறியீட்டை உள்ளிடவும்",
+      "use_phone_login": "கைபேசி எண் மூலம் உள்நுழையவும்",
+      "use_email_login": "மின்னஞ்சல் மூலம் உள்நுழையவும்"
     }
   },
   hi: {
@@ -441,7 +465,15 @@ const resources = {
       "mismatch_no": "नहीं, मेल नहीं खाता",
       "mismatch_reported_msg": "धन्यवाद। व्यवस्थापक को रिपोर्ट दी गई है। सुरक्षा कार्रवाई शुरू की जाएगी।",
       "mismatch_comment_placeholder": "कारण या टिप्पणी दर्ज करें...",
-      "verification_expired_warning": "कर्मचारी का सत्यापन समाप्त हो गया है। कर्मचारी को पुनः सत्यापन करना होगा।"
+      "verification_expired_warning": "कर्मचारी का सत्यापन समाप्त हो गया है। कर्मचारी को पुनः सत्यापन करना होगा।",
+      "phone_label": "मोबाइल नंबर",
+      "otp_label": "ओटीपी सत्यापन कोड",
+      "send_otp": "ओटीपी भेजें",
+      "verify_otp": "सत्यापित करें और लॉग इन करें",
+      "phone_placeholder": "10-अंकीय मोबाइल नंबर दर्ज करें",
+      "otp_placeholder": "6-अंकीय ओटीपी कोड दर्ज करें",
+      "use_phone_login": "मोबाइल नंबर के साथ लॉग इन करें",
+      "use_email_login": "ईमेल के साथ लॉग इन करें"
     }
   },
   kn: {
@@ -551,7 +583,15 @@ const resources = {
       "mismatch_no": "ಇಲ್ಲ, ಹೊಂದಿಕೆಯಾಗುವುದಿಲ್ಲ",
       "mismatch_reported_msg": "ಧನ್ಯವಾದಗಳು. ನಿರ್ವಾహಕರಿಗೆ ವರದಿ ಮಾಡಲಾಗಿದೆ. ಭದ್ರತಾ ಕ್ರಮಗಳನ್ನು ಕೈಗೊಳ್ಳಲಾಗುವುದು.",
       "mismatch_comment_placeholder": "ಕಾರಣ ಅಥವಾ ಕಾಮೆಂಟ್‌ಗಳನ್ನು ನಮೂదಿಸಿ...",
-      "verification_expired_warning": "ಕಾರ್ಮಿಕರ ಪರಿಶೀಲನೆ ಅವಧಿ ಮುಗಿದಿದೆ. ಕಾರ್ಮಿಕರು ಮರು-ಪರಿಶೀಲನೆ ಮಾಡಬೇಕು."
+      "verification_expired_warning": "ಕಾರ್ಮಿಕರ ಪರಿಶೀಲನೆ ಅವಧಿ ಮುಗಿದಿದೆ. ಕಾರ್ಮಿಕರು ಮರು-ಪರಿಶೀಲನೆ ಮಾಡಬೇಕು.",
+      "phone_label": "ಮೊಬೈಲ್ ಸಂಖ್ಯೆ",
+      "otp_label": "OTP ಪರಿಶೀಲನಾ ಕೋಡ್",
+      "send_otp": "OTP ಕಳುಹಿಸಿ",
+      "verify_otp": "ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಲಾಗಿನ್ ಮಾಡಿ",
+      "phone_placeholder": "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ",
+      "otp_placeholder": "6-ಅಂಕಿಯ OTP ಕೋಡ್ ನಮೂದಿಸಿ",
+      "use_phone_login": "ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯೊಂದಿಗೆ ಲಾಗಿನ್ ಮಾಡಿ",
+      "use_email_login": "ಇಮೇಲ್‌ನೊಂದಿಗೆ ಲಾಗಿನ್ ಮಾಡಿ"
     }
   },
   te: {
@@ -661,7 +701,15 @@ const resources = {
       "mismatch_no": "లేదు, సరిపోలడం లేదు",
       "mismatch_reported_msg": "ధన్యవాదాలు. అడ్మిన్‌కు నివేదించబడింది. భద్రతా చర్యలు తీసుకోబడతాయి.",
       "mismatch_comment_placeholder": "కారణం లేదా వ్యాఖ్యలను నమోదు చేయండి...",
-      "verification_expired_warning": "కార్మికుడి ధృవీకరణ గడువు ముగిసింది. కార్మికుడు మళ్లీ ధృవీకరించాలి."
+      "verification_expired_warning": "కార్మికుడి ధృవీకరణ గడువు ముగిసింది. కార్మికుడు మళ్లీ ధృవీకరించాలి.",
+      "phone_label": "మొబైల్ సంఖ్య",
+      "otp_label": "OTP ధృవీకరణ కోడ్",
+      "send_otp": "OTP పంపండి",
+      "verify_otp": "ధృవీకరించి లాగిన్ అవ్వండి",
+      "phone_placeholder": "10-అంకెల మొబైల్ సంఖ్యను నమోదు చేయండి",
+      "otp_placeholder": "6-అంకెల OTP కోడ్‌ను నమోదు చేయండి",
+      "use_phone_login": "మొబైల్ సంఖ్యతో లాగిన్ అవ్వండి",
+      "use_email_login": "ఈమెయిల్‌తో లాగిన్ అవ్వండి"
     }
   }
 };
