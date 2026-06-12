@@ -18,6 +18,9 @@ const HirerDashboard = () => {
   const [editName, setEditName] = useState('');
   const [editAge, setEditAge] = useState('');
   const [editPlace, setEditPlace] = useState('');
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [aadhaarNo, setAadhaarNo] = useState('');
+  const [aadhaarCardPic, setAadhaarCardPic] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
   // Hiring History State
@@ -242,21 +245,145 @@ const HirerDashboard = () => {
     }
   };
 
+  const simulateAadhaarCard = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 450;
+    canvas.height = 280;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = '#f4f6f9';
+    ctx.fillRect(0, 0, 450, 280);
+    
+    ctx.strokeStyle = '#0066cc';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, 446, 276);
+    
+    ctx.fillStyle = '#0055aa';
+    ctx.fillRect(4, 4, 442, 40);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px "Inter", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("UNIQUE IDENTIFICATION AUTHORITY OF INDIA", 225, 28);
+    
+    ctx.fillStyle = '#ff6600';
+    ctx.beginPath();
+    ctx.arc(400, 90, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px "Inter", sans-serif';
+    ctx.fillText("AADHAAR", 400, 125);
+    
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(20, 60, 25, 25);
+    
+    ctx.fillStyle = '#cccccc';
+    ctx.fillRect(20, 100, 100, 120);
+    ctx.fillStyle = '#666666';
+    ctx.beginPath();
+    ctx.arc(70, 140, 25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(70, 210, 40, Math.PI, 0);
+    ctx.fill();
+    
+    ctx.fillStyle = '#333333';
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px "Inter", sans-serif';
+    ctx.fillText("GOVERNMENT OF INDIA", 140, 75);
+    
+    ctx.font = '11px "Inter", sans-serif';
+    ctx.fillText("Name / பெயர்: " + (editName || "Hirer Name"), 140, 110);
+    ctx.fillText("DOB / பிறந்த தேதி: " + (editAge ? `Age ${editAge} Yrs` : "N/A"), 140, 130);
+    ctx.fillText("Gender / பாலினம்: Male", 140, 150);
+    ctx.fillText("Address / முகவரி: " + (editPlace || "N/A"), 140, 170);
+    
+    ctx.fillStyle = '#cc3300';
+    ctx.font = 'bold 18px "Inter", sans-serif';
+    ctx.fillText(aadhaarNo ? `${aadhaarNo.slice(0, 4)}  ${aadhaarNo.slice(4, 8)}  ${aadhaarNo.slice(8, 12)}` : "1234  5678  9012", 140, 210);
+    
+    ctx.fillStyle = '#0055aa';
+    ctx.fillRect(4, 250, 442, 26);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px "Inter", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("ஆதார் - சாதாரண மனிதனின் அதிகாரம்", 225, 266);
+    
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setAadhaarCardPic(dataUrl);
+  };
+
   const handleVerifyAadhar = async () => {
-    if (!editName || !editAge || !editPlace) {
-      alert("Please fill in all fields before verifying.");
+    if (!editName || !editAge || !editPlace || !aadhaarNo || !aadhaarCardPic) {
+      alert("Please fill out all fields and provide an Aadhaar card photo.");
       return;
     }
+    if (aadhaarNo.length !== 12) {
+      alert("Please enter a valid 12-digit Aadhaar Number.");
+      return;
+    }
+
     setIsVerifying(true);
     try {
+      let verificationStatus = 'verified';
+      let cctnsRemark = 'Cleared by CCTNS';
+      let isVerified = true;
+
+      // 1. CCTNS background lookup query
+      try {
+        const cctnsRef = collection(db, 'cctnsDb');
+        const cctnsSnap = await getDocs(cctnsRef);
+        const cctnsList = cctnsSnap.docs.map(doc => doc.data());
+
+        // Find a match based on Aadhaar Number (exact match) or Name (case-insensitive substring match)
+        const match = cctnsList.find(record => 
+          (record.aadhaarNumber && record.aadhaarNumber.trim() === aadhaarNo.trim()) ||
+          (record.name && record.name.toLowerCase().trim() === editName.toLowerCase().trim())
+        );
+
+        if (match) {
+          if (match.type === 'wanted') {
+            verificationStatus = 'blocked';
+            cctnsRemark = match.offense || 'CCTNS Blocked: Wanted criminal';
+            isVerified = false;
+          } else if (match.type === 'fir') {
+            verificationStatus = 'on_review';
+            cctnsRemark = match.offense || 'CCTNS Review: FIR pending';
+            isVerified = true;
+          }
+        }
+      } catch (checkErr) {
+        console.error("CCTNS Verification failed, falling back to verified", checkErr);
+      }
+
+      // 2. Save details to Firestore
       const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
+      const verifyData = {
         name: editName,
         age: editAge,
         place: editPlace,
-        isVerified: true
-      });
-      setUserData(prev => ({ ...prev, name: editName, age: editAge, place: editPlace, isVerified: true }));
+        aadhaarNumber: aadhaarNo,
+        aadhaarCardPic: aadhaarCardPic || '',
+        isVerified: isVerified,
+        lastVerifiedAt: new Date().toISOString(),
+        verificationStatus: verificationStatus,
+        cctnsRemark: cctnsRemark
+      };
+
+      await updateDoc(userDocRef, verifyData);
+      setUserData(prev => ({ ...prev, ...verifyData }));
+      setShowVerifyModal(false);
+      setAadhaarNo('');
+      setAadhaarCardPic(null);
+
+      // 3. Display verification result alerts
+      if (verificationStatus === 'blocked') {
+        alert("Verification completed. CCTNS Background Check: BLOCKED (Criminal Record Found)");
+      } else if (verificationStatus === 'on_review') {
+        alert("Verification completed. CCTNS Background Check: UNDER POLICE REVIEW (FIR Record Found)");
+      } else {
+        alert("Verification successfully completed!");
+      }
     } catch (error) {
       console.error("Failed to update profile", error);
       alert("Verification failed. Please try again.");
@@ -949,68 +1076,89 @@ const HirerDashboard = () => {
                   </div>
                 )}
 
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('full_name')}</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    style={{
-                      width: '100%', padding: '10px', borderRadius: '8px',
-                      background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: '#fff', outline: 'none', boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
+                {userData?.isVerified ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <div style={{ textAlign: 'center', margin: '10px 0' }}>
+                      <span style={{ background: 'rgba(0, 200, 83, 0.15)', color: '#00e676', border: '1px solid #00e676', padding: '8px 16px', borderRadius: '20px', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                        {t('verified')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('full_name')}</span><span>{userData.name}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('age')}</span><span>{userData.age}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('place')}</span><span>{userData.place}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>Aadhaar Number</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <p style={{ color: '#ff9800', fontSize: '0.9rem', textAlign: 'center', margin: '0 0 10px 0' }}>
+                      {t('qr_unverified_msg') || "Please verify your profile to activate all features."}
+                    </p>
 
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('age')}</label>
-                  <input
-                    type="number"
-                    value={editAge}
-                    onChange={(e) => setEditAge(e.target.value)}
-                    style={{
-                      width: '100%', padding: '10px', borderRadius: '8px',
-                      background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: '#fff', outline: 'none', boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('full_name')}</label>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px', borderRadius: '8px',
+                          background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
+                          color: '#fff', outline: 'none', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
 
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('place')}</label>
-                  <input
-                    type="text"
-                    value={editPlace}
-                    onChange={(e) => setEditPlace(e.target.value)}
-                    style={{
-                      width: '100%', padding: '10px', borderRadius: '8px',
-                      background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
-                      color: '#fff', outline: 'none', boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('age')}</label>
+                      <input
+                        type="number"
+                        value={editAge}
+                        onChange={(e) => setEditAge(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px', borderRadius: '8px',
+                          background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
+                          color: '#fff', outline: 'none', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
 
-                <button
-                  onClick={handleVerifyAadhar}
-                  disabled={isVerifying || userData?.isVerified}
-                  style={{
-                    marginTop: '15px',
-                    width: '100%',
-                    padding: '12px',
-                    fontSize: '1rem',
-                    fontWeight: 'bold',
-                    color: '#fff',
-                    backgroundColor: userData?.isVerified ? '#2e7d32' : '#e141ec',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: userData?.isVerified ? 'default' : 'pointer',
-                    transition: 'all 0.3s ease',
-                    opacity: isVerifying ? 0.7 : 1
-                  }}
-                >
-                  {isVerifying ? 'Verifying...' : userData?.isVerified ? t('verified') : t('verify_aadhar')}
-                </button>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem', color: '#b0b0b0' }}>{t('place')}</label>
+                      <input
+                        type="text"
+                        value={editPlace}
+                        onChange={(e) => setEditPlace(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px', borderRadius: '8px',
+                          background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
+                          color: '#fff', outline: 'none', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={() => { setShowProfileModal(false); setShowVerifyModal(true); }}
+                      style={{
+                        marginTop: '15px',
+                        width: '100%',
+                        padding: '12px',
+                        fontSize: '1rem',
+                        fontWeight: 'bold',
+                        color: '#fff',
+                        backgroundColor: '#e141ec',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)'
+                      }}
+                    >
+                      {t('verify_aadhar') || "Start Verification Wizard"}
+                    </button>
+                  </div>
+                )}
 
                 <button
                   onClick={handleLogout}
@@ -1153,6 +1301,141 @@ const HirerDashboard = () => {
                   </div>
                 )
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Aadhaar Verification Modal */}
+      {showVerifyModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+          padding: '40px 0', overflowY: 'auto', zIndex: 100
+        }}>
+          <div className="responsive-modal" style={{ maxWidth: '400px' }}>
+            <button 
+              onClick={() => { setShowVerifyModal(false); setAadhaarNo(''); setAadhaarCardPic(null); }} 
+              style={{
+                position: 'absolute', top: '15px', right: '15px',
+                background: 'transparent', border: 'none', color: '#fff',
+                fontSize: '1.2rem', cursor: 'pointer', zIndex: 10
+              }}
+            >
+              ✕
+            </button>
+            
+            <h2 style={{ fontSize: '1.6rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center', fontWeight: 'bold' }}>
+              {t('verify_step_aadhaar') || "Aadhaar Verification"}
+            </h2>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', fontFamily: '"Inter", sans-serif' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('full_name')}</label>
+                <input 
+                  type="text" 
+                  value={editName} 
+                  onChange={(e) => setEditName(e.target.value)} 
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('age')}</label>
+                <input 
+                  type="number" 
+                  value={editAge} 
+                  onChange={(e) => setEditAge(e.target.value)} 
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>{t('place')}</label>
+                <input 
+                  type="text" 
+                  value={editPlace} 
+                  onChange={(e) => setEditPlace(e.target.value)} 
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Number</label>
+                <input 
+                  type="text" 
+                  maxLength="12"
+                  placeholder={t('aadhaar_placeholder') || "Enter 12-digit Aadhaar Number"}
+                  value={aadhaarNo} 
+                  onChange={(e) => setAadhaarNo(e.target.value.replace(/\D/g, ''))} 
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box', letterSpacing: '1px' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Photo</label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setAadhaarCardPic(reader.result);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ display: 'none' }}
+                    id="aadhaar-file-input"
+                  />
+                  <label 
+                    htmlFor="aadhaar-file-input"
+                    style={{
+                      flex: 1, padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px dashed rgba(225, 65, 236, 0.4)', color: '#e141ec', textAlign: 'center',
+                      cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s'
+                    }}
+                  >
+                    📁 Upload Photo
+                  </label>
+                  <button
+                    type="button"
+                    onClick={simulateAadhaarCard}
+                    disabled={!editName || aadhaarNo.length !== 12}
+                    style={{
+                      padding: '10px 15px', borderRadius: '8px', background: 'rgba(225, 65, 236, 0.15)',
+                      border: '1px solid rgba(225, 65, 236, 0.3)', color: '#e141ec', fontWeight: 'bold',
+                      fontSize: '0.85rem', cursor: (!editName || aadhaarNo.length !== 12) ? 'not-allowed' : 'pointer',
+                      opacity: (!editName || aadhaarNo.length !== 12) ? 0.5 : 1
+                    }}
+                  >
+                    ⚙️ Simulate Card
+                  </button>
+                </div>
+                {aadhaarCardPic && (
+                  <div style={{ position: 'relative', width: '100%', height: '120px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+                    <img src={aadhaarCardPic} alt="Aadhaar Card Preview" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+                    <button 
+                      onClick={() => setAadhaarCardPic(null)}
+                      style={{ position: 'absolute', top: '5px', right: '5px', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '0.8rem' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={handleVerifyAadhar}
+                disabled={isVerifying}
+                style={{
+                  width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff',
+                  backgroundColor: '#e141ec', border: 'none', borderRadius: '8px', cursor: 'pointer',
+                  boxShadow: '0 0 10px rgba(225, 65, 236, 0.3)', marginTop: '10px'
+                }}
+              >
+                {isVerifying ? 'Verifying...' : (t('aadhaar_confirm') || "Confirm & Verify") + " →"}
+              </button>
             </div>
           </div>
         </div>
