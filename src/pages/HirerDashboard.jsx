@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, getDocs, addDoc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
@@ -54,6 +54,7 @@ const HirerDashboard = () => {
   const [notifTab, setNotifTab] = useState('received'); // 'received' | 'sent' | 'system'
   const [receivedNotifs, setReceivedNotifs] = useState([]);
   const [sentNotifs, setSentNotifs] = useState([]);
+  const [myRequests, setMyRequests] = useState([]);
   const [systemNotifications, setSystemNotifications] = useState([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
 
@@ -179,6 +180,88 @@ const HirerDashboard = () => {
   const [invitedWorkers, setInvitedWorkers] = useState([]);
   const [blockedWorkers, setBlockedWorkers] = useState([]);
 
+  const syncHistoryWithRequests = async () => {
+    if (!currentUser?.uid) return;
+    try {
+      const q = query(
+        collection(db, 'requests'),
+        where('status', '==', 'accepted')
+      );
+      const snap = await getDocs(q);
+      const acceptedRequests = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(req => req.fromUid === currentUser.uid || req.toUid === currentUser.uid);
+
+      if (acceptedRequests.length === 0) return;
+
+      const historyRef = collection(db, 'users', currentUser.uid, 'hiringHistory');
+      const historySnap = await getDocs(historyRef);
+      const currentHistory = historySnap.docs.map(doc => doc.data());
+
+      for (const req of acceptedRequests) {
+        const isLogged = currentHistory.some(h => 
+          h.requestId === req.id ||
+          (h.workerUid === req.fromUid || h.workerUid === req.toUid)
+        );
+
+        if (!isLogged) {
+          const partnerUid = req.fromUid === currentUser.uid ? req.toUid : req.fromUid;
+          const partnerName = req.fromUid === currentUser.uid ? req.toName : req.fromName;
+          
+          let partnerRole = 'Worker';
+          try {
+            const partnerDoc = await getDoc(doc(db, 'users', partnerUid));
+            if (partnerDoc.exists()) {
+              partnerRole = partnerDoc.data().role || 'Worker';
+            }
+          } catch (e) {}
+
+          await addDoc(historyRef, {
+            date: new Date(req.timestamp?.toDate ? req.timestamp.toDate() : Date.now()).toLocaleDateString('en-GB'),
+            workerName: partnerName,
+            workerUid: partnerUid,
+            role: partnerRole,
+            amount: 'Negotiable',
+            remark: 'Waiting for worker remarks.',
+            requestId: req.id,
+            timestamp: serverTimestamp()
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("History sync failed: ", err);
+    }
+  };
+
+  const fetchMyRequests = async () => {
+    if (!currentUser?.uid) return;
+    try {
+      const qFrom = query(
+        collection(db, 'requests'),
+        where('fromUid', '==', currentUser.uid)
+      );
+      const qTo = query(
+        collection(db, 'requests'),
+        where('toUid', '==', currentUser.uid)
+      );
+      const [fromSnap, toSnap] = await Promise.all([getDocs(qFrom), getDocs(qTo)]);
+      
+      const allReqs = [
+        ...fromSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        ...toSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      ];
+      setMyRequests(allReqs);
+      
+      const sentInvitations = allReqs.filter(r => r.fromUid === currentUser.uid && r.type === 'invitation');
+      setSentNotifs(sentInvitations);
+      
+      const receivedApps = allReqs.filter(r => r.toUid === currentUser.uid && r.type === 'application');
+      setReceivedNotifs(receivedApps);
+    } catch (err) {
+      console.warn("Failed to fetch requests: ", err);
+    }
+  };
+
   useEffect(() => {
     const fetchUserData = async () => {
       if (currentUser?.uid) {
@@ -191,21 +274,12 @@ const HirerDashboard = () => {
             setEditName(data.name || currentUser.displayName || '');
             setEditAge(data.age || '');
             setEditPlace(data.place || '');
+            
+            // Sync local hiring history with accepted requests from root collection
+            await syncHistoryWithRequests();
           }
         } catch (error) {
           console.error("Failed to fetch user data", error);
-        }
-      }
-    };
-
-    const fetchSentRequests = async () => {
-      if (currentUser?.uid) {
-        try {
-          const sentRef = collection(db, 'users', currentUser.uid, 'sentRequests');
-          const sentSnap = await getDocs(sentRef);
-          setSentNotifs(sentSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } catch (error) {
-          console.error("Failed to fetch sent requests", error);
         }
       }
     };
@@ -232,7 +306,7 @@ const HirerDashboard = () => {
     };
 
     fetchUserData();
-    fetchSentRequests();
+    fetchMyRequests();
     fetchWorkers();
   }, [currentUser]);
 
@@ -573,7 +647,10 @@ const HirerDashboard = () => {
 
   const handleInvite = async (worker) => {
     try {
-      const sentRef = await addDoc(collection(db, 'users', currentUser.uid, 'sentRequests'), {
+      const docRef = await addDoc(collection(db, 'requests'), {
+        fromUid: currentUser.uid,
+        fromName: userData?.name || currentUser.displayName || 'Hirer',
+        fromEmail: currentUser.email,
         toUid: worker.id,
         toName: worker.name || worker.displayName || 'Unnamed Worker',
         toEmail: worker.email,
@@ -581,19 +658,22 @@ const HirerDashboard = () => {
         status: 'pending',
         timestamp: serverTimestamp()
       });
-      
-      await addDoc(collection(db, 'users', worker.id, 'receivedRequests'), {
+
+      const newReq = {
+        id: docRef.id,
         fromUid: currentUser.uid,
         fromName: userData?.name || currentUser.displayName || 'Hirer',
         fromEmail: currentUser.email,
+        toUid: worker.id,
+        toName: worker.name || worker.displayName || 'Unnamed Worker',
+        toEmail: worker.email,
         type: 'invitation',
-        status: 'pending',
-        timestamp: serverTimestamp(),
-        senderDocId: sentRef.id
-      });
+        status: 'pending'
+      };
 
       setInvitedWorkers(prev => [...prev, worker.id]);
-      setSentNotifs(prev => [...prev, { id: sentRef.id, toUid: worker.id, toName: worker.name || 'Worker', type: 'invitation', status: 'pending' }]);
+      setSentNotifs(prev => [...prev, newReq]);
+      setMyRequests(prev => [...prev, newReq]);
       alert("Invitation sent successfully!");
     } catch (error) {
       console.error("Error inviting", error);
@@ -613,13 +693,7 @@ const HirerDashboard = () => {
     setShowNotificationsModal(true);
     setLoadingNotifs(true);
     try {
-      const recRef = collection(db, 'users', currentUser.uid, 'receivedRequests');
-      const recSnap = await getDocs(recRef);
-      setReceivedNotifs(recSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const sentRef = collection(db, 'users', currentUser.uid, 'sentRequests');
-      const sentSnap = await getDocs(sentRef);
-      setSentNotifs(sentSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      await fetchMyRequests();
 
       const sysRef = collection(db, 'users', currentUser.uid, 'systemNotifications');
       const sysSnap = await getDocs(sysRef);
@@ -639,21 +713,14 @@ const HirerDashboard = () => {
 
   const handleUpdateNotifStatus = async (notifId, newStatus) => {
     try {
-      const docRef = doc(db, 'users', currentUser.uid, 'receivedRequests', notifId);
+      const docRef = doc(db, 'requests', notifId);
       await updateDoc(docRef, { status: newStatus });
       setReceivedNotifs(prev => prev.map(n => n.id === notifId ? { ...n, status: newStatus } : n));
+      setMyRequests(prev => prev.map(n => n.id === notifId ? { ...n, status: newStatus } : n));
 
       const n = receivedNotifs.find(x => x.id === notifId);
-      if (n && n.senderDocId && n.fromUid) {
-        try {
-          const senderDocRef = doc(db, 'users', n.fromUid, 'sentRequests', n.senderDocId);
-          await updateDoc(senderDocRef, { status: newStatus });
-        } catch (writeErr) {
-          console.warn("Could not update sender's copy of request: ", writeErr);
-        }
-      }
 
-      // Add to hiring history and worker's work history on acceptance
+      // Add to hiring history on acceptance (safe write to own document)
       if (newStatus === 'accepted' && n) {
         let workerRole = 'Worker';
         try {
@@ -675,6 +742,7 @@ const HirerDashboard = () => {
           role: workerRole,
           amount: 'Negotiable',
           remark: 'Waiting for worker remarks.',
+          requestId: notifId,
           timestamp: serverTimestamp()
         });
 
@@ -687,25 +755,6 @@ const HirerDashboard = () => {
           return timeB - timeA;
         });
         setHiringHistory(items);
-
-        // 2. Write to Worker's work history (with safe try-catch for rules)
-        try {
-          const workerHistoryRef = collection(db, 'users', n.fromUid, 'workHistory');
-          const workerHistorySnap = await getDocs(workerHistoryRef);
-          const nextSNo = workerHistorySnap.size + 1;
-
-          await addDoc(workerHistoryRef, {
-            sno: nextSNo,
-            location: userData?.place || 'Local Area',
-            role: workerRole,
-            duration: 'Ongoing',
-            amount: 'Negotiable',
-            remark: `Hired by ${userData?.name || currentUser.displayName || 'Hirer'} (${currentUser.email})`,
-            timestamp: serverTimestamp()
-          });
-        } catch (workerHistoryErr) {
-          console.warn("Could not write to worker's work history: ", workerHistoryErr);
-        }
       }
     } catch (error) {
       console.error("Error updating status", error);
@@ -984,11 +1033,14 @@ const HirerDashboard = () => {
                   <span style={{ color: '#e141ec', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}>{t('view_works')}</span>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {(() => {
-                      const sentReq = sentNotifs.find(n => n.toUid === worker.id);
-                      if (sentReq) {
-                        if (sentReq.status === 'accepted') {
+                      const relReq = myRequests.find(n => 
+                        (n.fromUid === currentUser.uid && n.toUid === worker.id) ||
+                        (n.fromUid === worker.id && n.toUid === currentUser.uid)
+                      );
+                      if (relReq) {
+                        if (relReq.status === 'accepted') {
                           return <span style={{ color: '#00e676', fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(0,230,118,0.3)', padding: '4px 8px', borderRadius: '6px', background: 'rgba(0,230,118,0.1)' }}>📞 +91 9876543210</span>;
-                        } else if (sentReq.status === 'rejected') {
+                        } else if (relReq.status === 'rejected') {
                           return <span style={{ color: '#ff4c4c', fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(255,76,76,0.3)', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,76,76,0.1)' }}>{t('status_rejected')}</span>;
                         } else {
                           return <span style={{ color: '#b0b0b0', fontSize: '0.9rem', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)' }}>{t('status_pending')}</span>;
