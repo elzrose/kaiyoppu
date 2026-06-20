@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db, googleProvider } from '../firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, RecaptchaVerifier, signInWithPhoneNumber, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, addDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
@@ -108,6 +108,30 @@ export const AuthProvider = ({ children }) => {
     return user;
   };
 
+  const loginAnonymously = async () => {
+    const result = await signInAnonymously(auth);
+    const user = result.user;
+    
+    // Check if the user document already exists in Firestore
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      await setDoc(userDocRef, {
+        uid: user.uid,
+        name: 'Guest User',
+        email: null,
+        role: null,
+        isGuest: true,
+        createdAt: new Date().toISOString()
+      });
+      setUserRole(null);
+    } else {
+      setUserRole(userDocSnap.data().role || null);
+    }
+    return user;
+  };
+
   const logout = () => {
     return signOut(auth);
   };
@@ -175,6 +199,7 @@ export const AuthProvider = ({ children }) => {
     setupRecaptcha,
     sendOtp,
     confirmOtp,
+    loginAnonymously,
     logout
   };
 

@@ -35,6 +35,7 @@ const Login = () => {
     setupRecaptcha, 
     sendOtp, 
     confirmOtp, 
+    loginAnonymously,
     currentUser, 
     userRole 
   } = useAuth();
@@ -131,8 +132,17 @@ const Login = () => {
     }
   };
 
-  const handleGuest = () => {
-    navigate('/roles');
+  const handleGuest = async () => {
+    try {
+      await loginAnonymously();
+    } catch (error) {
+      console.error("Anonymous authentication failed:", error);
+      if (error.code === 'auth/operation-not-allowed') {
+        alert("Anonymous sign-in is not enabled in your Firebase Console. Please enable the 'Anonymous' provider under Authentication > Sign-in method.");
+      } else {
+        alert(`Failed to sign in as guest: ${error.message}`);
+      }
+    }
   };
 
   const handleGoogleSignIn = async () => {
