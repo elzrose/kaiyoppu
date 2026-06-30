@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, doc, updateDoc, getDocs, collection } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -17,3 +17,10 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Expose to console for testing security rules
+if (typeof window !== 'undefined') {
+  window.firebaseAuth = auth;
+  window.firebaseDb = db;
+  window.firestoreMethods = { doc, updateDoc, getDocs, collection };
+}

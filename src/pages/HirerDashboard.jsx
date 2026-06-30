@@ -19,6 +19,8 @@ const HirerDashboard = () => {
   const [editAge, setEditAge] = useState('');
   const [editPlace, setEditPlace] = useState('');
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [hasConsented, setHasConsented] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
   const [aadhaarNo, setAadhaarNo] = useState('');
   const [aadhaarCardPic, setAadhaarCardPic] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -183,14 +185,21 @@ const HirerDashboard = () => {
   const syncHistoryWithRequests = async () => {
     if (!currentUser?.uid) return;
     try {
-      const q = query(
+      const qFrom = query(
         collection(db, 'requests'),
-        where('status', '==', 'accepted')
+        where('status', '==', 'accepted'),
+        where('fromUid', '==', currentUser.uid)
       );
-      const snap = await getDocs(q);
-      const acceptedRequests = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(req => req.fromUid === currentUser.uid || req.toUid === currentUser.uid);
+      const qTo = query(
+        collection(db, 'requests'),
+        where('status', '==', 'accepted'),
+        where('toUid', '==', currentUser.uid)
+      );
+      const [fromSnap, toSnap] = await Promise.all([getDocs(qFrom), getDocs(qTo)]);
+      const acceptedRequests = [
+        ...fromSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        ...toSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      ];
 
       if (acceptedRequests.length === 0) return;
 
@@ -389,11 +398,15 @@ const HirerDashboard = () => {
 
   const handleVerifyAadhar = async () => {
     if (!editName || !editAge || !editPlace || !aadhaarNo || !aadhaarCardPic) {
-      alert("Please fill out all fields and provide an Aadhaar card photo.");
+      alert(t('fill_all_fields_alert'));
       return;
     }
     if (aadhaarNo.length !== 12) {
-      alert("Please enter a valid 12-digit Aadhaar Number.");
+      alert(t('invalid_aadhaar_alert'));
+      return;
+    }
+    if (!hasConsented) {
+      alert(t('consent_warning_alert'));
       return;
     }
 
@@ -452,15 +465,15 @@ const HirerDashboard = () => {
 
       // 3. Display verification result alerts
       if (verificationStatus === 'blocked') {
-        alert("Verification completed. CCTNS Background Check: BLOCKED (Criminal Record Found)");
+        alert(t('bg_check_blocked'));
       } else if (verificationStatus === 'on_review') {
-        alert("Verification completed. CCTNS Background Check: UNDER POLICE REVIEW (FIR Record Found)");
+        alert(t('bg_check_review'));
       } else {
-        alert("Verification successfully completed!");
+        alert(t('verification_complete_msg'));
       }
     } catch (error) {
       console.error("Failed to update profile", error);
-      alert("Verification failed. Please try again.");
+      alert(t('verification_error_msg'));
     } finally {
       setIsVerifying(false);
     }
@@ -639,7 +652,7 @@ const HirerDashboard = () => {
       setShowScanModal(false);
     } catch (err) {
       console.error("Failed to report mismatch:", err);
-      alert("Failed to send mismatch report.");
+      alert(t('failed_mismatch_report'));
     } finally {
       setIsReportingMismatch(false);
     }
@@ -674,10 +687,10 @@ const HirerDashboard = () => {
       setInvitedWorkers(prev => [...prev, worker.id]);
       setSentNotifs(prev => [...prev, newReq]);
       setMyRequests(prev => [...prev, newReq]);
-      alert("Invitation sent successfully!");
+      alert(t('invitation_sent_success'));
     } catch (error) {
       console.error("Error inviting", error);
-      alert("Failed to send invitation.");
+      alert(t('failed_send_invitation'));
     }
   };
 
@@ -685,7 +698,7 @@ const HirerDashboard = () => {
     const reason = prompt("Please provide a reason for reporting/blocking this Worker:");
     if (reason) {
       setBlockedWorkers(prev => [...prev, workerId]);
-      alert("Worker has been reported and blocked.");
+      alert(t('worker_reported_blocked'));
     }
   };
 
@@ -850,7 +863,7 @@ const HirerDashboard = () => {
             if (userData?.isVerified) {
               setShowScanModal(true);
             } else {
-              alert("Please verify your Aadhar in the Account section before scanning.");
+              alert(t('please_verify_aadhaar_scan'));
             }
           }}
           style={{
@@ -978,7 +991,7 @@ const HirerDashboard = () => {
 
         {/* Workers Grid */}
         {loadingWorkers ? (
-          <div style={{ textAlign: 'center', color: '#e141ec', padding: '40px' }}>Loading workers...</div>
+          <div style={{ textAlign: 'center', color: '#e141ec', padding: '40px' }}>{t('loading_workers')}</div>
         ) : filteredWorkers.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#888', padding: '40px' }}>{t('no_workers_found')}</div>
         ) : (
@@ -1120,7 +1133,7 @@ const HirerDashboard = () => {
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
                       </svg>
-                      OFFICIAL GOVT/ADMIN REMARK
+                      {t('official_remark')}
                     </div>
                     <div style={{ lineHeight: '1.4', color: userData.adminRemark.toLowerCase().includes('reject') || userData.adminRemark.toLowerCase().includes('case') || userData.adminRemark.toLowerCase().includes('failed') ? '#ffb3b3' : '#b3ffcc' }}>
                       {userData.adminRemark}
@@ -1136,10 +1149,10 @@ const HirerDashboard = () => {
                       </span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('full_name')}</span><span>{userData.name}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('full_name')}</span><span>{userData.name === 'Guest User' ? t('guest_user') : userData.name}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('age')}</span><span>{userData.age}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('place')}</span><span>{userData.place}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>Aadhaar Number</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('aadhaar_card_number')}</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
                     </div>
                   </div>
                 ) : (
@@ -1207,7 +1220,7 @@ const HirerDashboard = () => {
                         boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)'
                       }}
                     >
-                      {t('verify_aadhar') || "Start Verification Wizard"}
+                      {t('start_verification_wizard')}
                     </button>
                   </div>
                 )}
@@ -1237,9 +1250,9 @@ const HirerDashboard = () => {
             {activeTab === 'history' && (
               <div style={{ overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', fontFamily: '"Inter", sans-serif' }}>
                 {isFetchingHistory ? (
-                  <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>Loading history...</div>
+                  <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>{t('loading_history')}</div>
                 ) : hiringHistory.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>No hiring history available.</div>
+                  <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>{t('no_hiring_history')}</div>
                 ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', color: '#fff', fontSize: '0.9rem', textAlign: 'left', minWidth: '600px' }}>
                     <thead>
@@ -1268,7 +1281,7 @@ const HirerDashboard = () => {
                   </table>
                 )}
                 <div style={{ marginTop: '20px', fontSize: '0.8rem', color: '#a0a0a0', textAlign: 'center' }}>
-                  Note: Remarks in the hiring history are provided and edited exclusively by workers.
+                  {t('hiring_history_note')}
                 </div>
               </div>
             )}
@@ -1290,12 +1303,12 @@ const HirerDashboard = () => {
             <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
               <button onClick={() => setNotifTab('received')} style={tabStyle('received', notifTab)}>{t('received_applications')}</button>
               <button onClick={() => setNotifTab('sent')} style={tabStyle('sent', notifTab)}>{t('sent_invitations')}</button>
-              <button onClick={() => setNotifTab('system')} style={tabStyle('system', notifTab)}>System Alerts</button>
+              <button onClick={() => setNotifTab('system')} style={tabStyle('system', notifTab)}>{t('system_alerts_tab')}</button>
             </div>
 
             <div style={{ overflowY: 'auto', maxHeight: '400px', paddingRight: '10px', fontFamily: '"Inter", sans-serif' }}>
               {loadingNotifs ? (
-                <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>Loading...</div>
+                <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>{t('loading')}</div>
               ) : notifTab === 'received' ? (
                 receivedNotifs.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>{t('no_applications_received')}</div> : (
                   <div style={{ display: 'grid', gap: '15px' }}>
@@ -1312,7 +1325,7 @@ const HirerDashboard = () => {
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                               <div style={{ color: n.status === 'accepted' ? '#00e676' : '#ff4c4c', fontWeight: 'bold' }}>
-                                Status: {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}
+                                {t('status_label')} {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}
                               </div>
                               {n.status === 'accepted' && (
                                 <div style={{ color: '#00e676', fontWeight: 'bold' }}>📞 +91 9876543210</div>
@@ -1330,7 +1343,7 @@ const HirerDashboard = () => {
                     {sentNotifs.map(n => (
                       <div key={n.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
                         <div style={{ fontWeight: 'bold', color: '#fff', marginBottom: '5px' }}>{t('invited')} {n.toName}</div>
-                        <div style={{ color: '#b0b0b0', fontSize: '0.9rem', marginBottom: '10px' }}>Status: {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}</div>
+                        <div style={{ color: '#b0b0b0', fontSize: '0.9rem', marginBottom: '10px' }}>{t('status_label')} {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}</div>
                         {n.status === 'accepted' && (
                           <div style={{ color: '#00e676', fontWeight: 'bold' }}>📞 +91 9876543210</div>
                         )}
@@ -1339,7 +1352,7 @@ const HirerDashboard = () => {
                   </div>
                 )
               ) : (
-                systemNotifications.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>No system alerts received.</div> : (
+                systemNotifications.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>{t('no_system_alerts')}</div> : (
                   <div style={{ display: 'grid', gap: '15px' }}>
                     {systemNotifications.map(n => (
                       <div key={n.id} style={{ background: 'rgba(225,65,236,0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(225,65,236,0.2)' }}>
@@ -1357,7 +1370,6 @@ const HirerDashboard = () => {
           </div>
         </div>
       )}
-
       {/* Aadhaar Verification Modal */}
       {showVerifyModal && (
         <div style={{
@@ -1367,7 +1379,7 @@ const HirerDashboard = () => {
         }}>
           <div className="responsive-modal" style={{ maxWidth: '400px' }}>
             <button 
-              onClick={() => { setShowVerifyModal(false); setAadhaarNo(''); setAadhaarCardPic(null); }} 
+              onClick={() => { setShowVerifyModal(false); setHasConsented(false); setShowTermsModal(false); setAadhaarNo(''); setAadhaarCardPic(null); }} 
               style={{
                 position: 'absolute', top: '15px', right: '15px',
                 background: 'transparent', border: 'none', color: '#fff',
@@ -1409,20 +1421,71 @@ const HirerDashboard = () => {
                   style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
                 />
               </div>
+
+              {/* Terms and Conditions block */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '12px',
+                padding: '12px 15px',
+                marginBottom: '15px',
+                marginTop: '15px',
+                textAlign: 'left'
+              }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#e141ec', fontWeight: '600' }}>
+                  {t('terms_title')}
+                </h4>
+                <ul style={{ margin: '0 0 10px 0', paddingLeft: '18px', fontSize: '0.75rem', color: '#ccc', display: 'flex', flexDirection: 'column', gap: '4px', lineHeight: '1.4' }}>
+                  <li>{t('terms_point_1')}</li>
+                  <li>{t('terms_point_2')}</li>
+                  <li>{t('terms_point_3')}</li>
+                </ul>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button 
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: '#e141ec', textDecoration: 'underline', cursor: 'pointer', outline: 'none' }}
+                  >
+                    {t('terms_link')}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', marginTop: '10px', background: 'rgba(225, 65, 236, 0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(225, 65, 236, 0.2)' }}>
+                <input 
+                  type="checkbox" 
+                  id="consent-checkbox" 
+                  checked={hasConsented} 
+                  onChange={(e) => setHasConsented(e.target.checked)} 
+                  style={{ marginTop: '3px', cursor: 'pointer' }}
+                />
+                <label htmlFor="consent-checkbox" style={{ fontSize: '0.75rem', color: '#b0b0b0', lineHeight: '1.4', cursor: 'pointer', textAlign: 'left' }}>
+                  {t('consent_checkbox_label')}
+                </label>
+              </div>
+
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Number</label>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: hasConsented ? '#ccc' : '#666', marginBottom: '5px' }}>{t('aadhaar_card_number')}</label>
                 <input 
                   type="text" 
                   maxLength="12"
                   placeholder={t('aadhaar_placeholder') || "Enter 12-digit Aadhaar Number"}
                   value={aadhaarNo} 
                   onChange={(e) => setAadhaarNo(e.target.value.replace(/\D/g, ''))} 
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box', letterSpacing: '1px' }} 
+                  disabled={!hasConsented}
+                  style={{ 
+                    width: '100%', padding: '10px', borderRadius: '8px', 
+                    background: hasConsented ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)', 
+                    border: hasConsented ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid rgba(255, 255, 255, 0.05)', 
+                    color: hasConsented ? '#fff' : '#888', 
+                    boxSizing: 'border-box', letterSpacing: '1px',
+                    cursor: hasConsented ? 'text' : 'not-allowed'
+                  }} 
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Photo</label>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: hasConsented ? '#ccc' : '#666', marginBottom: '5px' }}>{t('aadhaar_card_photo')}</label>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
                   <input 
                     type="file" 
@@ -1437,31 +1500,42 @@ const HirerDashboard = () => {
                         reader.readAsDataURL(file);
                       }
                     }}
+                    disabled={!hasConsented}
                     style={{ display: 'none' }}
                     id="aadhaar-file-input"
                   />
                   <label 
                     htmlFor="aadhaar-file-input"
                     style={{
-                      flex: 1, padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px dashed rgba(225, 65, 236, 0.4)', color: '#e141ec', textAlign: 'center',
-                      cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s'
+                      flex: 1, padding: '10px', borderRadius: '8px', 
+                      background: hasConsented ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)',
+                      border: hasConsented ? '1px dashed rgba(225, 65, 236, 0.4)' : '1px dashed rgba(255, 255, 255, 0.1)', 
+                      color: hasConsented ? '#e141ec' : '#666', 
+                      textAlign: 'center',
+                      cursor: hasConsented ? 'pointer' : 'not-allowed', 
+                      fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s',
+                      pointerEvents: hasConsented ? 'auto' : 'none',
+                      opacity: hasConsented ? 1 : 0.5
                     }}
                   >
-                    📁 Upload Photo
+                    📁 {t('upload_photo')}
                   </label>
                   <button
                     type="button"
                     onClick={simulateAadhaarCard}
-                    disabled={!editName || aadhaarNo.length !== 12}
+                    disabled={!hasConsented || !editName || aadhaarNo.length !== 12}
                     style={{
-                      padding: '10px 15px', borderRadius: '8px', background: 'rgba(225, 65, 236, 0.15)',
-                      border: '1px solid rgba(225, 65, 236, 0.3)', color: '#e141ec', fontWeight: 'bold',
-                      fontSize: '0.85rem', cursor: (!editName || aadhaarNo.length !== 12) ? 'not-allowed' : 'pointer',
-                      opacity: (!editName || aadhaarNo.length !== 12) ? 0.5 : 1
+                      padding: '10px 15px', borderRadius: '8px', 
+                      background: (hasConsented && editName && aadhaarNo.length === 12) ? 'rgba(225, 65, 236, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                      border: (hasConsented && editName && aadhaarNo.length === 12) ? '1px solid rgba(225, 65, 236, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)', 
+                      color: (hasConsented && editName && aadhaarNo.length === 12) ? '#e141ec' : '#666', 
+                      fontWeight: 'bold',
+                      fontSize: '0.85rem', 
+                      cursor: (hasConsented && editName && aadhaarNo.length === 12) ? 'pointer' : 'not-allowed',
+                      opacity: (hasConsented && editName && aadhaarNo.length === 12) ? 1 : 0.5
                     }}
                   >
-                    ⚙️ Simulate Card
+                    ⚙️ {t('simulate_card')}
                   </button>
                 </div>
                 {aadhaarCardPic && (
@@ -1486,7 +1560,7 @@ const HirerDashboard = () => {
                   boxShadow: '0 0 10px rgba(225, 65, 236, 0.3)', marginTop: '10px'
                 }}
               >
-                {isVerifying ? 'Verifying...' : (t('aadhaar_confirm') || "Confirm & Verify") + " →"}
+                {isVerifying ? t('verifying') : (t('aadhaar_confirm') || "Confirm & Verify") + " →"}
               </button>
             </div>
           </div>
@@ -1994,6 +2068,70 @@ const HirerDashboard = () => {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Terms and Conditions Modal */}
+      {showTermsModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(10, 10, 20, 0.95)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          padding: '20px', zIndex: 120, backdropFilter: 'blur(8px)'
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(30, 25, 60, 0.98) 0%, rgba(20, 20, 35, 0.98) 100%)',
+            border: '1px solid rgba(225, 65, 236, 0.5)', borderRadius: '16px', padding: '25px',
+            width: '90%', maxWidth: '440px', position: 'relative',
+            boxShadow: '0 0 40px rgba(225, 65, 236, 0.25)', color: '#fff',
+            fontFamily: '"Inter", sans-serif'
+          }}>
+            <button 
+              onClick={() => setShowTermsModal(false)} 
+              style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}
+            >
+              ✕
+            </button>
+            
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '15px', color: '#e141ec', fontWeight: 'bold', borderBottom: '1px solid rgba(225, 65, 236, 0.2)', paddingBottom: '8px', textAlign: 'left' }}>
+              {t('terms_title')}
+            </h3>
+
+            <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px', fontSize: '0.8rem', color: '#d0d0d0', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left' }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>1. {t('terms_header_1')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_1')}</p>
+              </div>
+              
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>2. {t('terms_header_2')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_2')}</p>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>3. {t('terms_header_3')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_3')}</p>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '10px', marginTop: '5px', fontSize: '0.75rem', color: '#999' }}>
+                {t('terms_disclaimer')}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => setShowTermsModal(false)}
+                style={{
+                  background: 'linear-gradient(90deg, #e141ec 0%, #a21caf 100%)',
+                  border: 'none', borderRadius: '8px', padding: '8px 16px',
+                  color: '#fff', fontWeight: 'bold', fontSize: '0.8rem',
+                  cursor: 'pointer', boxShadow: '0 4px 10px rgba(225, 65, 236, 0.3)'
+                }}
+              >
+                {t('close')}
+              </button>
+            </div>
           </div>
         </div>
       )}

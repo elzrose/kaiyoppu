@@ -50,6 +50,8 @@ const WorkerDashboard = () => {
 
   // Verification Wizard State
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [hasConsented, setHasConsented] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
   const [verifyStep, setVerifyStep] = useState(1); // 1: Aadhaar & Info, 2: Selfie
   const [aadhaarNo, setAadhaarNo] = useState('');
   const [capturedSelfie, setCapturedSelfie] = useState(null);
@@ -166,14 +168,21 @@ const WorkerDashboard = () => {
   const syncHistoryWithRequests = async () => {
     if (!currentUser?.uid) return;
     try {
-      const q = query(
+      const qFrom = query(
         collection(db, 'requests'),
-        where('status', '==', 'accepted')
+        where('status', '==', 'accepted'),
+        where('fromUid', '==', currentUser.uid)
       );
-      const snap = await getDocs(q);
-      const acceptedRequests = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(req => req.fromUid === currentUser.uid || req.toUid === currentUser.uid);
+      const qTo = query(
+        collection(db, 'requests'),
+        where('status', '==', 'accepted'),
+        where('toUid', '==', currentUser.uid)
+      );
+      const [fromSnap, toSnap] = await Promise.all([getDocs(qFrom), getDocs(qTo)]);
+      const acceptedRequests = [
+        ...fromSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        ...toSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      ];
 
       if (acceptedRequests.length === 0) return;
 
@@ -405,7 +414,7 @@ const WorkerDashboard = () => {
 
   const handleCompleteVerification = async () => {
     if (!capturedSelfie) {
-      alert("Please capture your selfie first.");
+      alert(t('please_capture_selfie'));
       return;
     }
     setIsVerifying(true);
@@ -478,11 +487,11 @@ const WorkerDashboard = () => {
 
       // 3. Show appropriate alert based on the status
       if (isReverifying) {
-        alert("Re-verification submitted. Your account will remain locked until the Administrator reviews and approves your Aadhaar card and Selfie.");
+        alert(t('reverification_submitted_alert'));
       } else if (finalVerificationStatus === 'blocked') {
-        alert("Verification completed. CCTNS Background Check: BLOCKED (Criminal Record Found)");
+        alert(t('bg_check_blocked'));
       } else if (finalVerificationStatus === 'on_review') {
-        alert("Verification completed. CCTNS Background Check: UNDER POLICE REVIEW (FIR Record Found)");
+        alert(t('bg_check_review'));
       } else {
         alert(t('verification_complete_msg'));
       }
@@ -561,10 +570,10 @@ const WorkerDashboard = () => {
       setAppliedJobs(prev => [...prev, hirer.id]);
       setSentNotifs(prev => [...prev, newReq]);
       setMyRequests(prev => [...prev, newReq]);
-      alert("Application sent successfully!");
+      alert(t('application_sent_success'));
     } catch (error) {
       console.error("Error applying", error);
-      alert("Failed to send application.");
+      alert(t('failed_send_application'));
     }
   };
 
@@ -572,7 +581,7 @@ const WorkerDashboard = () => {
     const reason = prompt("Please provide a reason for reporting/blocking this Hirer:");
     if (reason) {
       setBlockedHirers(prev => [...prev, hirerId]);
-      alert("Hirer has been reported and blocked.");
+      alert(t('hirer_reported_blocked'));
     }
   };
 
@@ -897,7 +906,7 @@ const WorkerDashboard = () => {
                 )}
               </div>
 
-              <h2 style={{ fontSize: '1.8rem', margin: '0 0 0.5rem 0', color: '#fff' }}>{userData?.name || currentUser?.displayName || 'Worker'}</h2>
+              <h2 style={{ fontSize: '1.8rem', margin: '0 0 0.5rem 0', color: '#fff' }}>{userData?.name === 'Guest User' ? t('guest_user') : (userData?.name || currentUser?.displayName || 'Worker')}</h2>
               <p style={{ fontSize: '1.1rem', color: '#d0d0d0', margin: '0 0 8px 0', fontFamily: '"Inter", sans-serif' }}>{currentUser?.email}</p>
               
               <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
@@ -905,12 +914,12 @@ const WorkerDashboard = () => {
                   <span style={{ background: 'rgba(0, 200, 83, 0.2)', color: '#00e676', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(0, 200, 83, 0.4)' }}>{t('verified')}</span>
                 ) : (
                   <span style={{ background: 'rgba(255, 152, 0, 0.2)', color: '#ff9800', padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', border: '1px solid rgba(255, 152, 0, 0.4)' }}>
-                    {isExpired ? 'Verification Expired' : t('unverified')}
+                    {isExpired ? t('verification_expired') : t('unverified')}
                   </span>
                 )}
               </div>
               <div style={{ marginTop: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '0.9rem', color: '#b0b0b0' }}>Status:</span>
+                <span style={{ fontSize: '0.9rem', color: '#b0b0b0' }}>{t('status_label')}</span>
                 <button
                   onClick={handleToggleStatus}
                   disabled={isUpdatingStatus}
@@ -938,12 +947,12 @@ const WorkerDashboard = () => {
                   <canvas ref={canvasRef} style={{ width: 180, height: 180, borderRadius: '8px' }}></canvas>
                   <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
                     <span style={{ color: '#666', fontSize: '0.7rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Worker UID (Click to Copy)
+                      {t('worker_uid')}
                     </span>
                     <span 
                       onClick={() => {
                         navigator.clipboard.writeText(currentUser?.uid);
-                        alert("UID copied to clipboard!");
+                        alert(t('uid_copied'));
                       }}
                       style={{ 
                         color: '#e141ec', fontSize: '0.75rem', fontFamily: 'monospace', 
@@ -965,16 +974,16 @@ const WorkerDashboard = () => {
                 }}>
                   <span style={{ fontSize: '2rem' }}>🔒</span>
                   <span style={{ fontSize: '0.85rem', fontWeight: 'bold', lineHeight: '1.4' }}>
-                    {isExpired ? 'VERIFICATION EXPIRED' : 
-                     userData?.verificationStatus === 'reverification_required' ? 'RE-VERIFICATION REQUIRED' : 
-                     userData?.verificationStatus === 'pending_admin_reverify' ? 'PENDING MANUAL REVIEW' : 
-                     'QR CODE LOCKED'}
+                    {isExpired ? t('verification_expired') : 
+                     userData?.verificationStatus === 'reverification_required' ? t('reverification_required') : 
+                     userData?.verificationStatus === 'pending_admin_reverify' ? t('pending_manual_review') : 
+                     t('qr_code_locked')}
                   </span>
                   <p style={{ fontSize: '0.75rem', color: '#666', margin: 0 }}>
-                    {isExpired ? 'Verification is required every 6 months.' : 
-                     userData?.verificationStatus === 'reverification_required' ? 'Submit correct details before the 24h deadline.' : 
-                     userData?.verificationStatus === 'pending_admin_reverify' ? 'Please wait for the Admin to review.' : 
-                     'Complete Aadhaar & Selfie verification to unlock.'}
+                    {isExpired ? t('expired_warning_desc') : 
+                     userData?.verificationStatus === 'reverification_required' ? t('reverify_deadline_desc') : 
+                     userData?.verificationStatus === 'pending_admin_reverify' ? t('pending_review_desc') : 
+                     t('complete_verification_prompt')}
                   </p>
                 </div>
               )}
@@ -986,7 +995,7 @@ const WorkerDashboard = () => {
                 onClick={() => {
                   if (userData?.verificationStatus === 'pending_admin_reverify') return;
                   if (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) {
-                    alert("Your 24-hour verification window has expired. Please contact administration.");
+                    alert(t('window_expired_alert'));
                     return;
                   }
                   setShowVerifyModal(true);
@@ -1016,10 +1025,10 @@ const WorkerDashboard = () => {
                   transition: 'all 0.3s ease'
                 }}
               >
-                {userData?.verificationStatus === 'pending_admin_reverify' ? 'AWAITING ADMIN APPROVAL' :
-                 (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) ? 'DEADLINE EXPIRED' :
-                 userData?.verificationStatus === 'reverification_required' ? 'RE-VERIFY NOW' :
-                 isExpired ? 'RE-VERIFY PROFILE' : 'VERIFY TO UNLOCK QR'}
+                {userData?.verificationStatus === 'pending_admin_reverify' ? t('awaiting_admin_approval') :
+                 (userData?.verificationStatus === 'reverification_required' && isDeadlinePassed) ? t('deadline_expired') :
+                 userData?.verificationStatus === 'reverification_required' ? t('reverify_now') :
+                 isExpired ? t('reverify_profile') : t('verify_to_unlock')}
               </button>
             )}
 
@@ -1030,7 +1039,7 @@ const WorkerDashboard = () => {
                 backgroundColor: 'transparent', border: '1px solid rgba(225, 65, 236, 0.5)', borderRadius: '10px', cursor: 'pointer'
               }}
             >
-              SIGN OUT
+              {t('sign_out')}
             </button>
           </>
         )}
@@ -1054,7 +1063,7 @@ const WorkerDashboard = () => {
 
             <div style={{ overflowY: 'auto', maxHeight: '400px', paddingRight: '10px', fontFamily: '"Inter", sans-serif' }}>
               {loadingNotifs ? (
-                <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>Loading...</div>
+                <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '20px' }}>{t('loading')}</div>
               ) : notifTab === 'received' ? (
                 receivedNotifs.length === 0 ? <div style={{ textAlign: 'center', color: '#888' }}>{t('no_invitations_received')}</div> : (
                   <div style={{ display: 'grid', gap: '15px' }}>
@@ -1071,7 +1080,7 @@ const WorkerDashboard = () => {
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                               <div style={{ color: n.status === 'accepted' ? '#00e676' : '#ff4c4c', fontWeight: 'bold' }}>
-                                Status: {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}
+                                {t('status_label')} {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}
                               </div>
                               {n.status === 'accepted' && (
                                 <div style={{ color: '#00e676', fontWeight: 'bold' }}>📞 +91 9876543210</div>
@@ -1089,7 +1098,7 @@ const WorkerDashboard = () => {
                     {sentNotifs.map(n => (
                       <div key={n.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
                         <div style={{ fontWeight: 'bold', color: '#fff', marginBottom: '5px' }}>{t('applied_to')} {n.toName}</div>
-                        <div style={{ color: '#b0b0b0', fontSize: '0.9rem', marginBottom: '10px' }}>Status: {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}</div>
+                        <div style={{ color: '#b0b0b0', fontSize: '0.9rem', marginBottom: '10px' }}>{t('status_label')} {n.status === 'accepted' ? t('status_accepted') : n.status === 'rejected' ? t('status_rejected') : t('status_pending')}</div>
                         {n.status === 'accepted' && (
                           <div style={{ color: '#00e676', fontWeight: 'bold' }}>📞 +91 9876543210</div>
                         )}
@@ -1134,7 +1143,7 @@ const WorkerDashboard = () => {
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
                       </svg>
-                      OFFICIAL GOVT/ADMIN REMARK
+                      {t('official_remark')}
                     </div>
                     <div style={{ lineHeight: '1.4', color: userData.adminRemark.toLowerCase().includes('reject') || userData.adminRemark.toLowerCase().includes('case') || userData.adminRemark.toLowerCase().includes('failed') ? '#ffb3b3' : '#b3ffcc' }}>
                       {userData.adminRemark}
@@ -1152,7 +1161,7 @@ const WorkerDashboard = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('full_name')}</span><span>{userData.name}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('age')}</span><span>{userData.age}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('place')}</span><span>{userData.place}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>Aadhaar Number</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#888' }}>{t('aadhaar_card_number')}</span><span>{userData.aadhaarNumber ? `xxxx-xxxx-${userData.aadhaarNumber.slice(-4)}` : 'N/A'}</span></div>
                     </div>
                     <p style={{ color: '#a0a0a0', fontSize: '0.8rem', textAlign: 'center', fontStyle: 'italic', margin: '5px 0' }}>
                       {t('locked_profile_pic_msg')}
@@ -1167,7 +1176,7 @@ const WorkerDashboard = () => {
                       onClick={() => { setShowProfileModal(false); setShowVerifyModal(true); }} 
                       style={{ marginTop: '10px', width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#fff', backgroundColor: '#e141ec', border: 'none', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 0 15px rgba(225, 65, 236, 0.4)' }}
                     >
-                      {isExpired ? 'Perform Re-verification' : 'Start Verification Wizard'}
+                      {isExpired ? t('perform_reverification') : t('start_verification_wizard')}
                     </button>
                   </div>
                 )}
@@ -1175,7 +1184,7 @@ const WorkerDashboard = () => {
             )}
             {activeTab === 'history' && (
               <div className="responsive-table-wrapper">
-                {isFetchingHistory ? <div style={{ textAlign: 'center', padding: '20px' }}>Loading...</div> : (
+                {isFetchingHistory ? <div style={{ textAlign: 'center', padding: '20px' }}>{t('loading')}</div> : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', textAlign: 'left' }}>
                     <thead><tr style={{ borderBottom: '1px solid rgba(225, 65, 236, 0.4)', color: '#e141ec' }}><th>{t('sno')}</th><th>{t('where')}</th><th>{t('what')}</th><th>{t('duration')}</th><th>{t('amount')}</th><th>{t('remark')}</th></tr></thead>
                     <tbody>
@@ -1205,7 +1214,7 @@ const WorkerDashboard = () => {
             <h2 style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#e141ec', textAlign: 'center', fontFamily: '"Inter", sans-serif' }}>{t('available_hirers')}</h2>
             
             <div style={{ overflowY: 'auto', maxHeight: '400px', paddingRight: '10px', fontFamily: '"Inter", sans-serif' }}>
-              {loadingHirers ? <div style={{ textAlign: 'center', padding: '20px' }}>Loading hirers...</div> : (
+              {loadingHirers ? <div style={{ textAlign: 'center', padding: '20px' }}>{t('loading_hirers')}</div> : (
                 <div style={{ display: 'grid', gap: '15px' }}>
                   {hirers.filter(h => !blockedHirers.includes(h.id)).map(hirer => (
                     <div key={hirer.id} style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '15px', display: 'flex', flexDirection: 'column' }}>
@@ -1257,7 +1266,7 @@ const WorkerDashboard = () => {
             width: '90%', maxWidth: '460px', position: 'relative', boxShadow: '0 0 30px rgba(225, 65, 236, 0.3)'
           }}>
             <button 
-              onClick={() => { stopCamera(); setShowVerifyModal(false); setVerifyStep(1); setAadhaarNo(''); setCapturedSelfie(null); }} 
+              onClick={() => { stopCamera(); setShowVerifyModal(false); setHasConsented(false); setShowTermsModal(false); setVerifyStep(1); setAadhaarNo(''); setCapturedSelfie(null); }} 
               style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}
             >
               ✕
@@ -1274,7 +1283,7 @@ const WorkerDashboard = () => {
                   width: '30px', height: '30px', borderRadius: '50%', background: verifyStep >= 1 ? '#e141ec' : '#555',
                   color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '0.9rem'
                 }}>1</div>
-                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 1 ? '#fff' : '#888' }}>Info & Aadhaar</span>
+                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 1 ? '#fff' : '#888' }}>{t('step_info_aadhaar')}</span>
               </div>
               <div style={{
                 position: 'absolute', top: '15px', left: '15%', right: '15%', height: '2px',
@@ -1285,7 +1294,7 @@ const WorkerDashboard = () => {
                   width: '30px', height: '30px', borderRadius: '50%', background: verifyStep >= 2 ? '#e141ec' : '#555',
                   color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '0.9rem'
                 }}>2</div>
-                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 2 ? '#fff' : '#888' }}>Live Selfie</span>
+                <span style={{ fontSize: '0.75rem', marginTop: '5px', color: verifyStep >= 2 ? '#fff' : '#888' }}>{t('step_live_selfie')}</span>
               </div>
             </div>
 
@@ -1319,20 +1328,56 @@ const WorkerDashboard = () => {
                     style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box' }} 
                   />
                 </div>
+
+                
+                 
+                  
+                  
+                    <button 
+                      type="button"
+                      onClick={() => setShowTermsModal(true)}
+                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: '#e141ec', textDecoration: 'underline', cursor: 'pointer', outline: 'none',textalign: 'left' }}
+                    >
+                      {t('terms_link')}
+                    </button>
+                  
+                
+
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '20px', marginTop: '10px', background: 'rgba(225, 65, 236, 0.05)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(225, 65, 236, 0.2)' }}>
+                  <input 
+                    type="checkbox" 
+                    id="consent-checkbox" 
+                    checked={hasConsented} 
+                    onChange={(e) => setHasConsented(e.target.checked)} 
+                    style={{ marginTop: '3px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="consent-checkbox" style={{ fontSize: '0.75rem', color: '#b0b0b0', lineHeight: '1.4', cursor: 'pointer' }}>
+                    {t('consent_checkbox_label')}
+                  </label>
+                </div>
+
                 <div style={{ marginBottom: '10px' }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Number</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: hasConsented ? '#ccc' : '#666', marginBottom: '5px' }}>{t('aadhaar_card_number')}</label>
                   <input 
                     type="text" 
                     maxLength="12"
                     placeholder={t('aadhaar_placeholder')}
                     value={aadhaarNo} 
                     onChange={(e) => setAadhaarNo(e.target.value.replace(/\D/g, ''))} 
-                    style={{ width: '100%', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#fff', boxSizing: 'border-box', letterSpacing: '1px' }} 
+                    disabled={!hasConsented}
+                    style={{ 
+                      width: '100%', padding: '10px', borderRadius: '8px', 
+                      background: hasConsented ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)', 
+                      border: hasConsented ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid rgba(255, 255, 255, 0.05)', 
+                      color: hasConsented ? '#fff' : '#888', 
+                      boxSizing: 'border-box', letterSpacing: '1px',
+                      cursor: hasConsented ? 'text' : 'not-allowed'
+                    }} 
                   />
                 </div>
 
                 <div style={{ marginBottom: '15px' }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>Aadhaar Card Photo</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: hasConsented ? '#ccc' : '#666', marginBottom: '5px' }}>{t('aadhaar_card_photo')}</label>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
                     <input 
                       type="file" 
@@ -1347,31 +1392,42 @@ const WorkerDashboard = () => {
                           reader.readAsDataURL(file);
                         }
                       }}
+                      disabled={!hasConsented}
                       style={{ display: 'none' }}
                       id="aadhaar-file-input"
                     />
                     <label 
                       htmlFor="aadhaar-file-input"
                       style={{
-                        flex: 1, padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px dashed rgba(225, 65, 236, 0.4)', color: '#e141ec', textAlign: 'center',
-                        cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s'
+                        flex: 1, padding: '10px', borderRadius: '8px', 
+                        background: hasConsented ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)',
+                        border: hasConsented ? '1px dashed rgba(225, 65, 236, 0.4)' : '1px dashed rgba(255, 255, 255, 0.1)', 
+                        color: hasConsented ? '#e141ec' : '#666', 
+                        textAlign: 'center',
+                        cursor: hasConsented ? 'pointer' : 'not-allowed', 
+                        fontWeight: 'bold', fontSize: '0.85rem', transition: 'all 0.3s',
+                        pointerEvents: hasConsented ? 'auto' : 'none',
+                        opacity: hasConsented ? 1 : 0.5
                       }}
                     >
-                      📁 Upload Photo
+                      📁 {t('upload_photo')}
                     </label>
                     <button
                       type="button"
                       onClick={simulateAadhaarCard}
-                      disabled={!editName || aadhaarNo.length !== 12}
+                      disabled={!hasConsented || !editName || aadhaarNo.length !== 12}
                       style={{
-                        padding: '10px 15px', borderRadius: '8px', background: 'rgba(225, 65, 236, 0.15)',
-                        border: '1px solid rgba(225, 65, 236, 0.3)', color: '#e141ec', fontWeight: 'bold',
-                        fontSize: '0.85rem', cursor: (!editName || aadhaarNo.length !== 12) ? 'not-allowed' : 'pointer',
-                        opacity: (!editName || aadhaarNo.length !== 12) ? 0.5 : 1
+                        padding: '10px 15px', borderRadius: '8px', 
+                        background: (hasConsented && editName && aadhaarNo.length === 12) ? 'rgba(225, 65, 236, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                        border: (hasConsented && editName && aadhaarNo.length === 12) ? '1px solid rgba(225, 65, 236, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)', 
+                        color: (hasConsented && editName && aadhaarNo.length === 12) ? '#e141ec' : '#666', 
+                        fontWeight: 'bold',
+                        fontSize: '0.85rem', 
+                        cursor: (hasConsented && editName && aadhaarNo.length === 12) ? 'pointer' : 'not-allowed',
+                        opacity: (hasConsented && editName && aadhaarNo.length === 12) ? 1 : 0.5
                       }}
                     >
-                      ⚙️ Simulate Card
+                      ⚙️ {t('simulate_card')}
                     </button>
                   </div>
                   {aadhaarCardPic && (
@@ -1390,11 +1446,15 @@ const WorkerDashboard = () => {
                 <button 
                   onClick={() => {
                     if (!editName || !editAge || !editPlace || !aadhaarNo || !aadhaarCardPic) {
-                      alert("Please fill out all fields and provide an Aadhaar card photo.");
+                      alert(t('fill_all_fields_alert'));
                       return;
                     }
                     if (aadhaarNo.length !== 12) {
-                      alert("Please enter a valid 12-digit Aadhaar Number.");
+                      alert(t('invalid_aadhaar_alert'));
+                      return;
+                    }
+                    if (!hasConsented) {
+                      alert(t('consent_warning_alert'));
                       return;
                     }
                     setVerifyStep(2);
@@ -1428,8 +1488,8 @@ const WorkerDashboard = () => {
                     <>
                       {!window.isSecureContext && (
                         <div style={{ position: 'absolute', padding: '15px', textAlign: 'center', fontSize: '0.72rem', color: '#ffb74d', background: 'rgba(10, 10, 20, 0.96)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', boxSizing: 'border-box', zIndex: 10 }}>
-                          <span>⚠️ HTTPS required for camera access on mobile.</span>
-                          <span style={{ fontSize: '0.65rem', marginTop: '8px', color: '#ccc' }}>Use the <strong>Simulate Selfie (Mock)</strong> option below.</span>
+                          <span>{t('https_camera_warning')}</span>
+                          <span style={{ fontSize: '0.65rem', marginTop: '8px', color: '#ccc' }}>{t('use_simulate_selfie')}</span>
                         </div>
                       )}
                       <video 
@@ -1479,7 +1539,7 @@ const WorkerDashboard = () => {
                       disabled={isVerifying}
                       style={{ flex: 1, padding: '10px', background: '#00e676', border: 'none', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: isVerifying ? 'not-allowed' : 'pointer', boxShadow: '0 0 10px rgba(0, 230, 118, 0.4)' }}
                     >
-                      {isVerifying ? 'Saving...' : `✓ ${t('selfie_submit')}`}
+                      {isVerifying ? t('saving') : `✓ ${t('selfie_submit')}`}
                     </button>
                   </div>
                 )}
@@ -1488,10 +1548,74 @@ const WorkerDashboard = () => {
                   onClick={() => { stopCamera(); setVerifyStep(1); setCapturedSelfie(null); }} 
                   style={{ background: 'transparent', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '0.85rem', marginTop: '5px', textDecoration: 'underline' }}
                 >
-                  ← Go back to Info
+                  ← {t('go_back_to_info')}
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Terms and Conditions Modal */}
+      {showTermsModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(10, 10, 20, 0.95)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          padding: '20px', zIndex: 120, backdropFilter: 'blur(8px)'
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(30, 25, 60, 0.98) 0%, rgba(20, 20, 35, 0.98) 100%)',
+            border: '1px solid rgba(225, 65, 236, 0.5)', borderRadius: '16px', padding: '25px',
+            width: '90%', maxWidth: '440px', position: 'relative',
+            boxShadow: '0 0 40px rgba(225, 65, 236, 0.25)', color: '#fff',
+            fontFamily: '"Inter", sans-serif'
+          }}>
+            <button 
+              onClick={() => setShowTermsModal(false)} 
+              style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}
+            >
+              ✕
+            </button>
+            
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '15px', color: '#e141ec', fontWeight: 'bold', borderBottom: '1px solid rgba(225, 65, 236, 0.2)', paddingBottom: '8px', textAlign: 'left' }}>
+              {t('terms_title')}
+            </h3>
+
+            <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px', fontSize: '0.8rem', color: '#d0d0d0', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left' }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>1. {t('terms_header_1')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_1')}</p>
+              </div>
+              
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>2. {t('terms_header_2')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_2')}</p>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <strong>3. {t('terms_header_3')}:</strong>
+                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.75rem' }}>{t('terms_point_3')}</p>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '10px', marginTop: '5px', fontSize: '0.75rem', color: '#999' }}>
+                {t('terms_disclaimer')}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => setShowTermsModal(false)}
+                style={{
+                  background: 'linear-gradient(90deg, #e141ec 0%, #a21caf 100%)',
+                  border: 'none', borderRadius: '8px', padding: '8px 16px',
+                  color: '#fff', fontWeight: 'bold', fontSize: '0.8rem',
+                  cursor: 'pointer', boxShadow: '0 4px 10px rgba(225, 65, 236, 0.3)'
+                }}
+              >
+                {t('close')}
+              </button>
+            </div>
           </div>
         </div>
       )}

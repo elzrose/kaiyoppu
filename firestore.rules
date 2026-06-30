@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Helper function to check if the user is the administrator
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'admin@kaiyoppu.com';
+    }
+
+    // Helper function to check if the user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Users Collection (profiles)
+    match /users/{userId} {
+      // Anyone logged in can read profile details (needed for directory search & scan matching)
+      allow read: if isAuth();
+      
+      // Users can only create or update their own profile; admins have full override
+      allow write: if isAdmin() || (isAuth() && request.auth.uid == userId);
+      
+      // Work History Subcollection
+      match /workHistory/{historyId} {
+        allow read: if isAuth();
+        allow write: if isAdmin() || (isAuth() && request.auth.uid == userId);
+      }
+      
+      // Hiring History Subcollection
+      match /hiringHistory/{historyId} {
+        allow read: if isAuth();
+        allow write: if isAdmin() || (isAuth() && request.auth.uid == userId);
+      }
+
+      // System Notifications Subcollection
+      match /systemNotifications/{notificationId} {
+        // Users can only read and write their own notifications; admins can dispatch notifications
+        allow read: if isAuth() && request.auth.uid == userId;
+        allow write: if isAdmin() || (isAuth() && request.auth.uid == userId);
+      }
+    }
+
+    // Requests Collection (Applications and invitations between Workers and Hirers)
+    match /requests/{requestId} {
+      // Allow reading requests if the user is either the sender (fromUid) or the receiver (toUid), or if admin
+      allow read: if isAdmin() || (
+        isAuth() && (
+          resource == null || 
+          resource.data.fromUid == request.auth.uid || 
+          resource.data.toUid == request.auth.uid
+        )
+      );
+
+      // Allow creating requests if the current user is the sender (fromUid)
+      allow create: if isAdmin() || (
+        isAuth() && 
+        request.resource.data.fromUid == request.auth.uid
+      );
+
+      // Allow updating requests if the current user is a participant (either sender or receiver)
+      allow update: if isAdmin() || (
+        isAuth() && (
+          resource.data.fromUid == request.auth.uid || 
+          resource.data.toUid == request.auth.uid
+        )
+      );
+
+      // Only admins or the sender can delete a request
+      allow delete: if isAdmin() || (
+        isAuth() && 
+        resource.data.fromUid == request.auth.uid
+      );
+    }
+
+    // CCTNS Criminal Database (Simulated police records lookup)
+    match /cctnsDb/{recordId} {
+      // Anyone logged in can query background records
+      allow read: if isAuth();
+      // Only admins can write, update, or remove CCTNS records
+      allow write: if isAdmin();
+    }
+
+    // Mismatch Reports Collection (Reports submitted by Hirers)
+    match /mismatchReports/{reportId} {
+      // Only admins can view, update, or resolve mismatch reports
+      allow read, update, delete: if isAdmin();
+      // Any authenticated user can submit a report
+      allow create: if isAuth();
+    }
+
+    // Admin Logs (Audit logs for changes made by admin)
+    match /adminLogs/{logId} {
+      // Only the admin can view or write to admin logs
+      allow read, write: if isAdmin();
+    }
+  }
+}
